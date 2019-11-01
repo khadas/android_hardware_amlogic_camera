@@ -2337,13 +2337,19 @@ void Sensor::captureNV21(StreamBuffer b, uint32_t gain) {
                 if (vBuffer == NULL)
                     ALOGE("alloc temperary v buffer failed\n");
                 uint8_t *uBuffer = new uint8_t[width * height / 4];
-                if (uBuffer == NULL)
+                if (uBuffer == NULL) {
+                    if (vBuffer != NULL) {
+                        delete []vBuffer;
+                    }
                     ALOGE("alloc temperary u buffer failed\n");
+                }
 
                 if (ConvertToI420(src, vinfo->preview.buf.bytesused, b.img, b.stride, uBuffer, (b.stride + 1) / 2,
                       vBuffer, (b.stride + 1) / 2, 0, 0, width, height,
                       width, height, libyuv::kRotate0, libyuv::FOURCC_MJPG) != 0) {
                     DBG_LOGA("Decode MJPEG frame failed\n");
+                    delete []vBuffer;
+                    delete []uBuffer;
                     putback_frame(vinfo);
                     ALOGE("%s , %d , Decode MJPEG frame failed \n", __FUNCTION__ , __LINE__);
                     continue;
@@ -2362,13 +2368,19 @@ void Sensor::captureNV21(StreamBuffer b, uint32_t gain) {
                 if (vBuffer == NULL)
                     ALOGE("alloc temperary v buffer failed\n");
                 uint8_t *uBuffer = new uint8_t[width * height / 4];
-                if (uBuffer == NULL)
+                if (uBuffer == NULL) {
+                    if (vBuffer != NULL) {
+                        delete []vBuffer;
+                    }
                     ALOGE("alloc temperary u buffer failed\n");
+                }
 
                 if (ConvertToI420(src, vinfo->preview.buf.bytesused, mTemp_buffer, width, uBuffer, (width + 1) / 2,
                       vBuffer, (width + 1) / 2, 0, 0, width, height,
                       width, height, libyuv::kRotate0, libyuv::FOURCC_MJPG) != 0) {
                     DBG_LOGA("Decode MJPEG frame failed\n");
+                    delete []vBuffer;
+                    delete []uBuffer;
                     putback_frame(vinfo);
                     ALOGE("%s , %d , Decode MJPEG frame failed \n", __FUNCTION__ , __LINE__);
                     continue;
