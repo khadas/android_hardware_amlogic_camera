@@ -2320,7 +2320,7 @@ void Sensor::captureNV21(StreamBuffer b, uint32_t gain) {
             uint32_t height = vinfo->preview.format.fmt.pix.height;
             memset(mTemp_buffer, 0 , width * height * 3/2);
             YUYVToNV21(src, mTemp_buffer, width, height);
-            if ((width == b.width) && (height == b.height)) {
+            if ((width == b.stride) && (height == b.height)) {
                 memcpy(b.img, mTemp_buffer, b.width * b.height * 3/2);
                 mKernelBuffer = b.img;
             } else {
