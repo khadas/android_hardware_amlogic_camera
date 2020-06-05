@@ -26,6 +26,8 @@
 #include "EmulatedCamera3.h"
 #include "fake-pipeline2/Base.h"
 #include "fake-pipeline2/Sensor.h"
+#include "fake-pipeline2/USBSensor.h"
+#include "fake-pipeline2/MIPISensor.h"
 #include "fake-pipeline2/JpegCompressor.h"
 #include <CameraMetadata.h>
 #include <utils/List.h>

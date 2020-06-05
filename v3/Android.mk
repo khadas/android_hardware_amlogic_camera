@@ -59,7 +59,9 @@ LOCAL_SHARED_LIBRARIES:= \
     libexpat \
     libexif \
     libcamera_metadata \
-    libispaaa
+    libispaaa \
+    libamgralloc_ext \
+    libmediandk
 
 LOCAL_STATIC_LIBRARIES := \
     libyuv_static \
@@ -85,7 +87,15 @@ MESON_GRALLOC_DIR ?= hardware/amlogic/gralloc
 LOCAL_C_INCLUDES += external/jpeg \
                     external/jhead/ \
                     frameworks/native/include/media/hardware \
+                    $(TOP)/frameworks/native/libs/nativebase/include \
+                    $(TOP)/frameworks/native/libs/ui/include \
+                    $(TOP)/frameworks/native/libs/arect/include \
+                    $(TOP)/frameworks/native/libs/nativewindow/include/ \
+                    $(TOP)/frameworks/native/include \
+                    $(TOP)/frameworks/native/include/media/openmax \
+                    $(TOP)/frameworks/native/libs/binder/include \
                     external/libyuv/files/include/ \
+                    $(TOP)/system/core/include \
                     $(TOP)/system/core/libion/include \
                     $(TOP)/system/core/libion/kernel-headers \
                     $(TOP)/$(MESON_GRALLOC_DIR) \
@@ -93,7 +103,9 @@ LOCAL_C_INCLUDES += external/jpeg \
                     $(call include-path-for, camera) \
                     $(TOP)/external/expat/lib \
                     $(TOP)/external/libexif \
-                    $(LOCAL_PATH)/isplib/inc
+                    $(LOCAL_PATH)/isplib/inc \
+                    $(TOP)/frameworks/av/media/ndk/include \
+                    $(TOP)/frameworks/av/media/libstagefright/include/media/
 
 LOCAL_SRC_FILES := \
     EmulatedCameraHal.cpp \
@@ -116,12 +128,18 @@ LOCAL_SRC_FILES := \
         fake-pipeline2/ge2d_stream.cpp \
         fake-pipeline2/JpegCompressor.cpp \
         fake-pipeline2/NV12_resize.c \
-        fake-pipeline2/util.c \
-    EmulatedCamera3.cpp \
+		fake-pipeline2/CameraUtil.cpp \
+        EmulatedCamera3.cpp \
         EmulatedFakeCamera3.cpp \
         EmulatedFakeCamera3Info.cpp \
         fake-pipeline2/camera_hw.cpp \
+        fake-pipeline2/util.c \
         VendorTags.cpp \
+        fake-pipeline2/USBSensor.cpp \
+        fake-pipeline2/MIPISensor.cpp \
+        fake-pipeline2/OMXDecoder.cpp \
+        fake-pipeline2/HalMediaCodec.cpp \
+        fake-pipeline2/CameraIO.cpp \
 
 ifeq ($(TARGET_PRODUCT),vbox_x86)
 LOCAL_MODULE := camera.vbox_x86

@@ -1207,9 +1207,9 @@ exif_buffer * JpegCompressor::get_exif_buffer() {
 
     exif_entry_set_short(pEd, EXIF_IFD_EXIF, EXIF_TAG_FLASH, 0);
 
-    sR.numerator = 3299;
-    sR.denominator = 1000;
-    exif_entry_set_rational(pEd, EXIF_IFD_EXIF, EXIF_TAG_FOCAL_LENGTH, sR);
+    //sR.numerator = 3299;
+    //sR.denominator = 1000;
+    //exif_entry_set_rational(pEd, EXIF_IFD_EXIF, EXIF_TAG_FOCAL_LENGTH, sR);
 
     memset(exifcontent, 0, sizeof(exifcontent));
     snprintf(exifcontent, 20, "%06d", (int) sTv.tv_usec);
