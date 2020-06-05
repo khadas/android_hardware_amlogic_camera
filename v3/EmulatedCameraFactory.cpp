@@ -23,6 +23,7 @@
 //#define LOG_NDDEBUG 0
 //#define LOG_NIDEBUG 0
 #define LOG_TAG "EmulatedCamera_Factory"
+#define ATRACE_TAG (ATRACE_TAG_CAMERA | ATRACE_TAG_HAL | ATRACE_TAG_ALWAYS)
 #include <android/log.h>
 #include <cutils/properties.h>
 #include "EmulatedQemuCamera.h"
@@ -31,6 +32,7 @@
 #include "EmulatedFakeCamera3.h"
 #include "EmulatedCameraHotplugThread.h"
 #include "EmulatedCameraFactory.h"
+#include <utils/Trace.h>
 
 extern camera_module_t HAL_MODULE_INFO_SYM;
 volatile int32_t gCamHal_LogLevel = 4;
@@ -69,6 +71,7 @@ int updateLogLevels()
 static  int getCameraNum() {
     int iCamerasNum = 0;
     char property[PROPERTY_VALUE_MAX];
+    ATRACE_CALL();
     property_get("ro.vendor.platform.board_camera", property, "false");
     if (strstr(property, "true")) {
         for (int i = 0; i < (int)ARRAY_SIZE(BOARD_SENSOR_PATH); i++ ) {
@@ -103,6 +106,7 @@ EmulatedCameraFactory::EmulatedCameraFactory()
     status_t res;
     /* Connect to the factory service in the emulator, and create Qemu cameras. */
     int cameraId = 0;
+    ATRACE_CALL();
 
     memset(mEmulatedCameras, 0,(MAX_CAMERA_NUM) * sizeof(EmulatedBaseCamera*));
     mEmulatedCameraNum = getCameraNum();
@@ -159,6 +163,7 @@ int EmulatedCameraFactory::getValidCameraId() {
     int iValidId = 0;
     char property[PROPERTY_VALUE_MAX];
     property_get("ro.vendor.platform.board_camera", property, "false");
+    ATRACE_CALL();
 
     for (int i = 0; i < MAX_CAMERA_NUM; i++ ) {
         if (strstr(property, "true")) {
@@ -189,6 +194,7 @@ int EmulatedCameraFactory::cameraDeviceOpen(int camera_id, hw_device_t** device)
     ALOGV("%s: id = %d", __FUNCTION__, camera_id);
     int valid_id;
     *device = NULL;
+    ATRACE_CALL();
 
     updateLogLevels();
 
@@ -209,6 +215,7 @@ int EmulatedCameraFactory::cameraDeviceOpen(int camera_id, hw_device_t** device)
 
 int EmulatedCameraFactory::getCameraInfo(int camera_id, struct camera_info* info)
 {
+    ATRACE_CALL();
     ALOGV("%s: id = %d", __FUNCTION__, camera_id);
     int valid_id;
     if (!isConstructedOK()) {
@@ -297,6 +304,8 @@ int EmulatedCameraFactory::device_open(const hw_module_t* module,
                                        const char* name,
                                        hw_device_t** device)
 {
+    ATRACE_CALL();
+
     /*
      * Simply verify the parameters, and dispatch the call inside the
      * EmulatedCameraFactory instance.
@@ -317,6 +326,7 @@ int EmulatedCameraFactory::device_open(const hw_module_t* module,
 
 int EmulatedCameraFactory::get_number_of_cameras(void)
 {
+    ATRACE_CALL();
     int i = 0;
     EmulatedBaseCamera* cam = gEmulatedCameraFactory.getValidCameraOject();
     while (i < 6) {
@@ -350,7 +360,7 @@ int EmulatedCameraFactory::set_callbacks(
 
 void EmulatedCameraFactory::get_vendor_tag_ops(vendor_tag_ops_t* ops)
 {
-	 gEmulatedCameraFactory.getvendortagops(ops);
+     gEmulatedCameraFactory.getvendortagops(ops);
 }
 /********************************************************************************
  * Internal API
@@ -505,6 +515,7 @@ int EmulatedCameraFactory::getFakeCameraHalVersion(int cameraId __unused)
 
 void EmulatedCameraFactory::onStatusChanged(int cameraId, int newStatus)
 {
+    ATRACE_CALL();
     status_t res;
     char dev_name[128];
     int i = 0 , j = 0;

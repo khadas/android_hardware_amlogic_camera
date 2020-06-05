@@ -21,7 +21,8 @@
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "Camera_hw"
-
+#define ATRACE_TAG (ATRACE_TAG_CAMERA | ATRACE_TAG_HAL | ATRACE_TAG_ALWAYS)
+#include <utils/Trace.h>
 #include <errno.h>
 #include <cutils/properties.h>
 #include "camera_hw.h"
@@ -96,9 +97,9 @@ int camera_open(struct VideoInfo *cam_dev)
                                 cam_dev->idx);
         }
 
-        if (strstr((const char *)cam_dev->cap.driver, "ARM-camera-isp")) {
-                isp_lib_enable();
-        }
+        //if (strstr((const char *)cam_dev->cap.driver, "ARM-camera-isp")) {
+                //isp_lib_enable();
+        //}
 
         return ret;
 }
@@ -125,6 +126,7 @@ int setBuffersFormat(struct VideoInfo *cam_dev)
 
 int start_capturing(struct VideoInfo *vinfo)
 {
+        ATRACE_CALL();
         int ret = 0;
         int i;
         enum v4l2_buf_type type;
@@ -314,6 +316,7 @@ uintptr_t get_frame_phys(struct VideoInfo *vinfo)
 
 void *get_frame(struct VideoInfo *vinfo)
 {
+        ATRACE_CALL();
         CLEAR(vinfo->preview.buf);
 
         vinfo->preview.buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -342,6 +345,7 @@ void *get_frame(struct VideoInfo *vinfo)
 
 int putback_frame(struct VideoInfo *vinfo)
 {
+        ATRACE_CALL();
         if (vinfo->dev_status == -1)
             return 0;
 
@@ -370,6 +374,8 @@ int putback_picture_frame(struct VideoInfo *vinfo)
 
 int start_picture(struct VideoInfo *vinfo, int rotate)
 {
+        ATRACE_CALL();
+
         int ret = 0;
         int i;
         enum v4l2_buf_type type;
@@ -460,6 +466,8 @@ int start_picture(struct VideoInfo *vinfo, int rotate)
 
 void *get_picture(struct VideoInfo *vinfo)
 {
+        ATRACE_CALL();
+
         CLEAR(vinfo->picture.buf);
 
         vinfo->picture.buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
