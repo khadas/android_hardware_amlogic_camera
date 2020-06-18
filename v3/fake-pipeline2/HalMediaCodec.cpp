@@ -1,5 +1,5 @@
-#define LOG_NDEBUG  0
-#define LOG_NNDEBUG 0
+//#define LOG_NDEBUG  0
+//#define LOG_NNDEBUG 0
 
 #define LOG_TAG "HalMediaCodec"
 
@@ -22,10 +22,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-
+#ifdef GE2D_ENABLE
+#include "fake-pipeline2/ge2d_stream.h"
+#endif
 #define MIN(_a,_b) ((_a) > (_b) ? (_b) : (_a))
 #define TIMEOUT_US 5000
-
+namespace android {
 int HalMediaCodec::init(int width, int height,const char* name)
 {
     char mime[40];
@@ -68,7 +70,9 @@ int HalMediaCodec::init(int width, int height,const char* name)
         mMediaCodec = NULL;
         return 0;
     }
-
+    for (int i = 0; i < 3; i++)
+        mTempOutBuffer[i] = (uint8_t*)malloc(mOriFrameSize*3/2);
+    mDecoderFailNumber = 0;
     return 1;
 }
 
@@ -79,6 +83,8 @@ int HalMediaCodec::fini()
         AMediaCodec_delete(mMediaCodec);
         mMediaCodec = NULL;
     }
+    for (int i = 0; i < 3; i++)
+        free(mTempOutBuffer[i]);
     return 1;
 }
 
@@ -109,7 +115,36 @@ int HalMediaCodec::decode(uint8_t*bufData, size_t bufSize, uint8_t*outBuf)
 {
     if (NULL == mMediaCodec)
         return 0;
+    QueueBuffer(bufData,bufSize);
 
+    int ret = DequeueBuffer(outBuf);
+    if (!ret)
+        mDecoderFailNumber ++;
+
+    if (ret && mDecoderFailNumber >= 1) {
+        int r = 0;
+        int i = 0;
+        for (i = 0 ; i < 3; i++) {
+            int value = DequeueBuffer(mTempOutBuffer[i]);
+            if (value) {
+                ALOGD("%s: read cached data.FailNumber=%d",__FUNCTION__,mDecoderFailNumber);
+                mDecoderFailNumber -= 1;
+                r = 1;
+                continue;
+            }
+            else
+                break;
+        }
+        if (r && ((i-1) >= 0)) {
+            memcpy(outBuf,mTempOutBuffer[i-1],mOriFrameSize*3/2);
+            ret = r;
+        }
+    }
+    return ret;
+}
+
+
+void HalMediaCodec::QueueBuffer(uint8_t*bufData,size_t bufSize) {
     ssize_t bufidx = AMediaCodec_dequeueInputBuffer(mMediaCodec, TIMEOUT_US);
     if (bufidx >= 0) {
         size_t outsize;
@@ -123,7 +158,9 @@ int HalMediaCodec::decode(uint8_t*bufData, size_t bufSize, uint8_t*outBuf)
             ALOGD("%s: obtained InputBuffer, but no address.",__FUNCTION__);
         }
     }
+}
 
+int HalMediaCodec::DequeueBuffer(uint8_t*outBuf) {
     AMediaCodecBufferInfo info;
     ssize_t outbufidx = AMediaCodec_dequeueOutputBuffer(mMediaCodec, &info, TIMEOUT_US);
     if (outbufidx >= 0) {
@@ -199,4 +236,5 @@ int HalMediaCodec::decode(uint8_t*bufData, size_t bufSize, uint8_t*outBuf)
         }
     }
     return 1;
+}
 }

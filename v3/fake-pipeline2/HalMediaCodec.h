@@ -1,7 +1,7 @@
 #pragma once
 #include <media/NdkMediaCodec.h>
 //class AMediaCodec;
-
+namespace android {
 class HalMediaCodec
 {
 public:
@@ -16,6 +16,12 @@ public:
     int fini();
     int decode(uint8_t*bufData, size_t bufSize, uint8_t*outBuf);
 private:
-	unsigned int timeGetTime();
-	void NV12toNV21(uint8_t *buf, int width, int height);
+    unsigned int timeGetTime();
+    void NV12toNV21(uint8_t *buf, int width, int height);
+	void QueueBuffer(uint8_t*bufData,size_t bufSize);
+	int DequeueBuffer(uint8_t*outBuf);
+private:
+	int mDecoderFailNumber;
+	uint8_t* mTempOutBuffer[3];
 };
+}

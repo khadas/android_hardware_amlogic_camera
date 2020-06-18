@@ -11,7 +11,9 @@
 #include <media/hardware/HardwareAPI.h>
 
 #include <binder/IPCThreadState.h>
-
+#ifdef GE2D_ENABLE
+#include "fake-pipeline2/ge2d_stream.h"
+#endif
 #ifdef LOG_TAG
 #undef LOG_TAG
 #define LOG_TAG "OMXDecoder"
@@ -32,6 +34,7 @@ OMXDecoder::OMXDecoder(bool useDMABuffer, bool keepOriginalSize) {
     mFreeHandle = NULL;
     mDeinit = NULL;
     mVDecoderHandle = NULL;
+    mDequeueFailNum = 0;
 }
 
 OMXDecoder::~OMXDecoder() {
@@ -59,6 +62,10 @@ bool OMXDecoder::setParameters(uint32_t width, uint32_t height,
 bool OMXDecoder::initialize(const char* name) {
     LOG_LINE();
     OMX_ERRORTYPE eRet = OMX_ErrorNone;
+
+    for (int i = 0; i < 3; i++)
+        mTempFrame[i] = (uint8_t*)malloc(mWidth*mHeight*3/2);
+
     if (0 == strcmp(name,"mjpeg"))
         mDecoderComponentName = (char *)"OMX.amlogic.mjpeg.decoder.awesome";
     mLibHandle = dlopen("libOmxCore.so", RTLD_NOW);
@@ -257,7 +264,8 @@ void OMXDecoder::deinitialize()
     OMX_ERRORTYPE eRet = OMX_ErrorNone;
     OMX_STATETYPE eState1, eState2;
     LOG_LINE();
-
+    for (int i = 0; i < 3; i++)
+            free(mTempFrame[i]);
     mNoFreeFlag = 1;
     if (mVDecoderHandle == NULL) {
         ALOGD("mVDecoderHandle is NULL, alread deinitialized or not initialized at all");
@@ -430,7 +438,7 @@ bool OMXDecoder::normal_buffer_init(int buffer_size){
 
 bool OMXDecoder::ion_buffer_init() {
 
-    ion_user_handle_t *ion_hnd = NULL;
+    ion_user_handle_t ion_hnd;
     int shared_fd;
     int ret = 0;
     int buffer_size = mWidth * mHeight * 3 / 2 ;
@@ -445,28 +453,22 @@ bool OMXDecoder::ion_buffer_init() {
                     + ZTE_BUF_ADDR_ALIGNMENT_VALUE - 1)
                 & ~(ZTE_BUF_ADDR_ALIGNMENT_VALUE - 1)));
     for (uint32_t i = 0; i < mVideoOutputPortParam.nBufferCountActual; i++) {
-        OMX_BUFFERHEADERTYPE* bufferHdr =
-            (OMX_BUFFERHEADERTYPE*)malloc(sizeof(OMX_BUFFERHEADERTYPE));
+        OMX_BUFFERHEADERTYPE* bufferHdr;
         OMX_U8 *cpu_ptr;
 
         if (mUseDMABuffer) {
-            if (!bufferHdr) {
-                ALOGE("out of memory when allocation output buffers");
-                return false;
-            }
             ALOGD("try to allocate dma buffer %d", i);
-            ion_hnd = (ion_user_handle_t*)malloc(sizeof(ion_user_handle_t*));
-            ret = ion_alloc(mIonFd, buffer_size, 0, 1 << ION_HEAP_TYPE_CUSTOM, ion_flag, ion_hnd);
+            ret = ion_alloc(mIonFd, buffer_size, 0, 1 << ION_HEAP_TYPE_CUSTOM, ion_flag, &ion_hnd);
             if (ret) {
                 ALOGE("ion alloc error, errno=%d",ret);
                 ion_close(mIonFd);
                 return false;
             } else
-                ALOGD("allocating dma buffer %d success", i);
-            ret = ion_share(mIonFd, *ion_hnd, &shared_fd);
+                ALOGD("allocating dma buffer %d success, handle %d", i, ion_hnd);
+            ret = ion_share(mIonFd, ion_hnd, &shared_fd);
             if (ret) {
                 ALOGE("ion share error!, errno=%d\n",ret);
-                ion_free(mIonFd, *ion_hnd);
+                ion_free(mIonFd, ion_hnd);
                 ion_close(mIonFd);
                 return false;
             }
@@ -474,33 +476,32 @@ bool OMXDecoder::ion_buffer_init() {
                     shared_fd, 0);
             if (MAP_FAILED == cpu_ptr) {
                 ALOGE("ion mmap error!\n");
-                ion_free(mIonFd, *ion_hnd);
+                close(shared_fd);
+                ion_free(mIonFd, ion_hnd);
                 ion_close(mIonFd);
                 return false;
             }
             if (cpu_ptr == NULL)
                 ALOGD("cpu_ptr is NULL");
-
-            bufferHdr->pPlatformPrivate = (void *)(int*)malloc(sizeof(int));
-            //bufferHdr->pAppPrivate = (void *)ion_hnd;
-            *((int *)(bufferHdr->pPlatformPrivate)) = shared_fd;
-            ALOGD("AllocDmaBuffers__shared_fd=%d,mIonFd=%d\n",shared_fd,mIonFd);
-            ALOGD("[%s:%d], fd=%d", __FUNCTION__, __LINE__, *((int *)(bufferHdr->pPlatformPrivate)));
-        }
-        else {
+            ALOGD("AllocDmaBuffers ion_hnd=%d, shared_fd=%d, cpu_ptr=%p\n", ion_hnd, shared_fd, cpu_ptr);
+        } else {
             cpu_ptr = (OMX_U8 *)(malloc(uAlignedBytes * sizeof(OMX_U8)));
-            if (!bufferHdr) {
+            if (!cpu_ptr) {
                 ALOGE("out of memory when allocation output buffers");
                 return false;
             }
         }
-        eRet = OMX_UseBuffer(mVDecoderHandle, &bufferHdr,
-                mVideoOutputPortParam.nPortIndex, ion_hnd,
-                mVideoOutputPortParam.nBufferSize, (OMX_U8*)cpu_ptr);
+        eRet = OMX_UseBuffer(mVDecoderHandle,
+                &bufferHdr,
+                mVideoOutputPortParam.nPortIndex,
+                (OMX_PTR)shared_fd,
+                mVideoOutputPortParam.nBufferSize,
+                (OMX_U8*)cpu_ptr);
         if (OMX_ErrorNone != eRet) {
             ALOGE("OMX_UseBuffer on output port failed! eRet = %#x\n", eRet);
             return false;
         }
+        bufferHdr->pAppPrivate = (OMX_PTR)ion_hnd;
         mListOfOutputBufferHeader.push_back(bufferHdr);
     }
     return true;
@@ -563,11 +564,11 @@ void OMXDecoder::free_ion_buffer(void) {
         if (bufferHdr != NULL) {
             if (mUseDMABuffer) {
                 munmap(bufferHdr->pBuffer, mWidth * mHeight * 3 / 2);
-                int ret = close((int)(bufferHdr->pPlatformPrivate));
+                int ret = close((int)bufferHdr->pPlatformPrivate);
                 if (ret != 0) {
                     ALOGD("close ion shared fd failed for reason %s",strerror(errno));
                 }
-                //AOLOG("FreeDmaBuffers_mOutBuffer[i].fd=%d,mIonFd=%d\n",mOutBuffer[i].fd,mIonFd);
+                ALOGD("bufferHdr->pAppPrivate: %p", bufferHdr->pAppPrivate);
                 ret = ion_free(mIonFd, (ion_user_handle_t)(bufferHdr->pAppPrivate));
                 if (ret != 0) {
                     ALOGD("ion_free failed for reason %s",strerror(errno));
@@ -578,7 +579,6 @@ void OMXDecoder::free_ion_buffer(void) {
                 }
             } else if (bufferHdr->pBuffer != NULL)
                 free(bufferHdr->pBuffer);
-            free(bufferHdr);
         }
         mListOfOutputBufferHeader.erase(mListOfOutputBufferHeader.begin());
     }
@@ -753,4 +753,89 @@ OMX_ERRORTYPE OMXDecoder::OnFillBufferDone(
 {
     OMXDecoder *instance = static_cast<OMXDecoder *>(pAppData);
     return instance->fillBufferDone(pBuffer);
+}
+
+void OMXDecoder::QueueBuffer(uint8_t* src, size_t size) {
+    static OMX_TICKS timeStamp = 0;
+    OMX_BUFFERHEADERTYPE *pInPutBufferHdr = NULL;
+    pInPutBufferHdr = dequeueInputBuffer();
+    //ALOGD("omx pInPutBufferHdr = %p\n", pInPutBufferHdr);
+    if (pInPutBufferHdr && pInPutBufferHdr->pBuffer) {
+        memcpy(pInPutBufferHdr->pBuffer, src, size);
+        pInPutBufferHdr->nFilledLen = size;
+        pInPutBufferHdr->nOffset = 0;
+        pInPutBufferHdr->nTimeStamp = timeStamp;
+        pInPutBufferHdr->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
+        queueInputBuffer(pInPutBufferHdr);
+        timeStamp += 33 * 1000; //44
+    }
+}
+
+int OMXDecoder::DequeueBuffer(int dst_fd ,uint8_t* dst_buf,
+                                    size_t dst_w, size_t dst_h) {
+
+        OMX_BUFFERHEADERTYPE *pOutPutBufferHdr = NULL;
+         pOutPutBufferHdr = dequeueOutputBuffer();
+        if (pOutPutBufferHdr == NULL) {
+            //dequeue fail
+            //ALOGD("%s:dequeue fail",__FUNCTION__);
+            return 0;
+        } else {
+            //ALOGD("omx pOutPutBufferHdr = %p\n", pOutPutBufferHdr);
+#ifdef GE2D_ENABLE
+           if (dst_fd != -1) {
+                //copy data using ge2d
+                int omx_share_fd = (int)pOutPutBufferHdr->pPlatformPrivate;
+                ge2dDevice::ge2d_copy(dst_fd,omx_share_fd,dst_w,dst_h);
+            }
+            else
+                memcpy(dst_buf, pOutPutBufferHdr->pBuffer, pOutPutBufferHdr->nFilledLen);
+#else
+            //no ge2d support
+            memcpy(dst_buf, pOutPutBufferHdr->pBuffer, pOutPutBufferHdr->nFilledLen);
+
+#endif
+            releaseOutputBuffer(pOutPutBufferHdr);
+            return 1;
+        }
+        return 1;
+}
+
+
+int OMXDecoder::Decode(uint8_t*src, size_t src_size,
+                          int dst_fd,uint8_t *dst_buf,
+                          size_t dst_w, size_t dst_h) {
+        QueueBuffer(src, src_size);
+        int ret = DequeueBuffer(dst_fd,dst_buf,
+                                dst_w,dst_h);
+        if (!ret) {
+            mDequeueFailNum ++;
+            ALOGD("%s:FailNumber=%d",__FUNCTION__,mDequeueFailNum);
+        }
+
+        if (ret && mDequeueFailNum >= 1) {
+            int r = 0;
+            int i = 0;
+            for (i = 0 ; i < 3; i++) {
+                /*becase mTempFrame is not physical consist memory,
+                 *if decode image to this buffer, we can't use ge2d to rotate
+                 *the image.
+                 */
+                int value = DequeueBuffer(-1,mTempFrame[i],dst_w,dst_h);
+                if (value) {
+                    ALOGD("%s:read cached data.",__FUNCTION__);
+                    mDequeueFailNum -= 1;
+                    r = 1;
+                    continue;
+                }
+                else
+                    break;
+            }
+            if (r && ((i-1) >= 0)) {
+                ALOGD("%s:i=%d",__FUNCTION__,i);
+                memcpy(dst_buf,mTempFrame[i-1],mWidth*mHeight*3/2);
+                ret = r;
+            }
+    }
+    return ret;
 }

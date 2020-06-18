@@ -7,6 +7,11 @@
 #include "OMXDecoder.h"
 #include "HalMediaCodec.h"
 #include "CameraIO.h"
+#include "CameraDevice.h"
+#ifdef GE2D_ENABLE
+#include "ge2d_stream.h"
+#endif
+#include "ion_if.h"
 namespace android {
 
     class USBSensor:public Sensor {
@@ -53,7 +58,10 @@ namespace android {
             status_t setAutoFocuas(uint8_t afMode) override;
             int getAWB(uint8_t *awbMode, uint8_t maxCount) override;
             status_t setAWB(uint8_t awbMode) override;
+            void setSensorListener(SensorListener *listener) override;
+            uint32_t getStreamUsage(int stream_type) override;
         private:
+            CameraVirtualDevice* mCameraVirtualDevice;
             int mUSBDevicefd;
             enum Decode_Method{
                 DECODE_SOFTWARE,
@@ -66,8 +74,6 @@ namespace android {
             HalMediaCodec* mHalMediaCodec;
             CameraUtil* mCameraUtil;
             FILE* fp;
-            int frame_index;
-            int frame_num;
             Vector<uint32_t> mSupportFormat;
             Vector<uint32_t> mTryPixelFormat;
             uint32_t mCurrentFormat;
@@ -78,15 +84,20 @@ namespace android {
             uint8_t* mImage_buffer;
             uint8_t* mDecodedBuffer;
             bool mIsRequestFinished;
+            int mTempFD;
+#ifdef GE2D_ENABLE
+            IONInterface* mION;
+#endif
         private:
             USBSensor();
-            void dump(uint8_t* buf, int length, std::string name);
+            void dump(int& frame_index,uint8_t* buf, int length, std::string name);
             void initDecoder(int width, int height, int bufferCount);
             int MJPEGToNV21(uint8_t* src, StreamBuffer b);
             int SensorInit(int idx);
             void InitVideoInfo(int idx);
             int camera_open(int idx);
             void camera_close(void);
+            const char* getformt(int id);
     };
 }
 #endif

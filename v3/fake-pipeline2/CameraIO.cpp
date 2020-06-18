@@ -25,7 +25,6 @@
 #include <errno.h>
 #include <cutils/properties.h>
 #include "CameraIO.h"
-#include "ispaaalib.h"
 namespace android {
 CVideoInfo::CVideoInfo(){
     memset(&cap, 0, sizeof(struct v4l2_capability));
@@ -33,10 +32,10 @@ CVideoInfo::CVideoInfo(){
     memset(&picture,0,sizeof(FrameV4L2Info));
     memset(mem,0,sizeof(mem));
     memset(mem_pic,0,sizeof(mem_pic));
-    memset(canvas,0,sizeof(canvas));
+    //memset(canvas,0,sizeof(canvas));
     isStreaming = false;
     isPicture = false;
-    canvas_mode = false;
+    //canvas_mode = false;
     width = 0;
     height = 0;
     formatIn = 0;
@@ -185,7 +184,7 @@ int CVideoInfo::start_capturing(void)
         }
         CLEAR(preview.rb);
 
-        preview.rb.count = 6;
+        preview.rb.count = IO_PREVIEW_BUFFER;
         preview.rb.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         //TODO DMABUF & ION
         preview.rb.memory = V4L2_MEMORY_MMAP;
@@ -396,7 +395,9 @@ int CVideoInfo::get_frame_index(FrameV4L2Info& info) {
                 default:
                     CAMHAL_LOGDB("VIDIOC_DQBUF failed, errno=%d\n", errno); //CAMHAL_LOGDB
                     //exit(1); /*here will generate crash, so delete.  when ocour error, should break while() loop*/
-                    set_device_status();
+                    if (errno == ENODEV) {
+                        set_device_status();
+                    }
                     return -1;
             }
         }
@@ -405,7 +406,7 @@ int CVideoInfo::get_frame_index(FrameV4L2Info& info) {
 
 void* CVideoInfo::get_frame()
 {
-    DBG_LOGA("get frame\n");
+    //DBG_LOGA("get frame\n");
     int index = get_frame_index(preview);
     if (index < 0)
         return nullptr;
@@ -478,7 +479,7 @@ int CVideoInfo::start_picture(int rotate)
             break;
         }
         //step 2 : request buffer
-        picture.rb.count = 3;
+        picture.rb.count = IO_PICTURE_BUFFER;
         picture.rb.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         //TODO DMABUF & ION
         picture.rb.memory = V4L2_MEMORY_MMAP;

@@ -21,7 +21,7 @@
 #include "CameraUtil.h"
 #include "libyuv.h"
 #include "libyuv/scale.h"
-#include "ge2d_stream.h"
+//#include "ge2d_stream.h"
 
 #include "NV12_resize.h"
 
@@ -277,7 +277,7 @@ int CameraUtil::MJPEGToNV21(uint8_t* src, int src_len,int src_width, int src_hei
 					if (ConvertToI420(src, src_len, dst, dst_stride, uBuffer, (dst_stride + 1) / 2,
 					vBuffer, (dst_stride + 1) / 2, 0, 0, src_width, src_height,
 					src_width, src_height, libyuv::kRotate0, libyuv::FOURCC_MJPG) != 0) {
-						DBG_LOGA("Decode MJPEG frame failed\n");
+						ALOGE("Decode MJPEG frame failed\n");
 						delete []vBuffer;
 						delete []uBuffer;
 						return -1;
@@ -293,7 +293,7 @@ int CameraUtil::MJPEGToNV21(uint8_t* src, int src_len,int src_width, int src_hei
 	                if (ConvertToI420(src, src_len, tmpBuf, src_width, uBuffer, (src_width + 1) / 2,
 	                      vBuffer, (src_width + 1) / 2, 0, 0, src_width, src_height,
 	                      src_width, src_height, libyuv::kRotate0, libyuv::FOURCC_MJPG) != 0) {
-	                    DBG_LOGA("Decode MJPEG frame failed\n");
+	                    ALOGE("Decode MJPEG frame failed\n");
 	                    delete []vBuffer;
 	                    delete []uBuffer;
 						return -1;
@@ -319,7 +319,7 @@ int CameraUtil::MJPEGToNV21(uint8_t* src, int src_len,int src_width, int src_hei
 					memcpy(dst, tmpBuf, dst_width * dst_height * 3/2);
 				}else {
 	                if ((dst_height % 2) != 0) {
-	                    DBG_LOGB("%d, b.height = %d", __LINE__, dst_height);
+	                    ALOGD("%d, b.height = %d", __LINE__, dst_height);
 	                    dst_height = dst_height - 1;
 	                }
 	                ReSizeNV21(tmpBuf, dst, dst_width, dst_height,
@@ -355,7 +355,7 @@ int CameraUtil::MJPEGToRGB(uint8_t* src, int src_len,int src_width, int src_heig
 			if (ConvertToI420(src, src_len, tmpBuf, src_width, uBuffer, (src_width + 1) / 2,
 						  vBuffer, (src_width + 1) / 2, 0, 0, src_width, src_height,
 						  src_width, src_height, libyuv::kRotate0, libyuv::FOURCC_MJPG) != 0) {
-				DBG_LOGA("Decode MJPEG frame failed\n");
+				ALOGE("Decode MJPEG frame failed\n");
 				delete []vBuffer;
 				delete []uBuffer;
 				return -1;
@@ -377,7 +377,7 @@ int CameraUtil::MJPEGToRGB(uint8_t* src, int src_len,int src_width, int src_heig
 			if (ConvertMjpegToNV21(src, src_len, tmpBuf,
 				src_width, tmpBuf + src_width * src_height, (src_width + 1) / 2, src_width,
 				src_height, src_width, src_height, libyuv::FOURCC_MJPG) != 0) {
-				DBG_LOGA("Decode MJPEG frame failed\n");
+				ALOGE("Decode MJPEG frame failed\n");
 				return -1;
 			} else {
 				nv21_to_rgb24(tmpBuf,dst,src_width,src_height);
@@ -425,7 +425,7 @@ int CameraUtil::MJPEGScaleYV12(uint8_t* src, int src_len,int src_width, int src_
 		   tmp_buffer + src_width * src_height + src_width * src_height / 4, (src_width + 1) / 2,
 		   tmp_buffer + src_width * src_height, (src_width + 1) / 2, 0, 0, src_width, src_height,
 		   src_width, src_height, libyuv::kRotate0, libyuv::FOURCC_MJPG) != 0) {
-			DBG_LOGA("Decode MJPEG frame failed\n");
+			ALOGE("Decode MJPEG frame failed\n");
 			return -1;
 		}
 
@@ -447,7 +447,7 @@ int CameraUtil::MJPEGScaleYV12(uint8_t* src, int src_len,int src_width, int src_
 			if (ConvertToI420(src,src_len,dst, src_width, dst + src_width * src_height + src_width * src_height / 4, (src_width + 1) / 2,
 			        dst + src_width * src_height, (src_width + 1) / 2, 0, 0, src_width, src_height,
 			        src_width, src_height, libyuv::kRotate0, libyuv::FOURCC_MJPG) != 0) {
-				DBG_LOGA("Decode MJPEG frame failed\n");
+				ALOGE("Decode MJPEG frame failed\n");
 				return -1;
 			}
 	}

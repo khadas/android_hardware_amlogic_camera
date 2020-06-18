@@ -37,7 +37,7 @@
 #include "libyuv.h"
 #include "NV12_resize.h"
 #include "libyuv/scale.h"
-#include "ge2d_stream.h"
+//#include "ge2d_stream.h"
 #include "util.h"
 #include <sys/time.h>
 #include <inttypes.h>
@@ -238,7 +238,7 @@ status_t Sensor::startUp(int idx) {
             ALOGE("Unable to open sensor %d, errno=%d\n", vinfo->idx, res);
     }
 
-    mSensorType = SENSOR_MMAP;
+    mSensorType = SENSOR_USB;
     if (strstr((const char *)vinfo->cap.driver, "uvcvideo")) {
         mSensorType = SENSOR_USB;
     }
@@ -1215,11 +1215,11 @@ bool Sensor::threadLoop() {
         mScene.setExposureDuration((float)exposureDuration/1e9);
         mScene.calculateScene(mNextCaptureTime);
 
-        if ( mSensorType == SENSOR_SHARE_FD) {
-            captureNewImageWithGe2d();
-        } else {
+        //if ( mSensorType == SENSOR_SHARE_FD) {
+            //captureNewImageWithGe2d();
+        //} else {
             captureNewImage();
-        }
+        //}
         mFramecount ++;
         ALOGVV("Sensor vertical blanking interval");
         nsecs_t workDoneRealTime = systemTime();
@@ -1255,7 +1255,7 @@ bool Sensor::threadLoop() {
     return true;
 };
 
-int Sensor::captureNewImageWithGe2d() {
+/*int Sensor::captureNewImageWithGe2d() {
 
     //uint32_t gain = mGainFactor;
     mKernelPhysAddr = 0;
@@ -1275,7 +1275,7 @@ int Sensor::captureNewImageWithGe2d() {
 
     return 0;
 
-}
+}*/
 
 int Sensor::captureNewImage() {
     ATRACE_CALL();

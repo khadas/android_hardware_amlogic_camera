@@ -40,8 +40,8 @@
 #include <linux/videodev2.h>
 #include <DebugUtils.h>
 
-#define NB_BUFFER 6
-#define NB_PIC_BUFFER 2
+#define IO_PREVIEW_BUFFER 2
+#define IO_PICTURE_BUFFER 3
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 
 #define V4L2_ROTATE_ID 0x980922  //V4L2_CID_ROTATE
@@ -65,9 +65,9 @@ class CVideoInfo {
 		struct	v4l2_capability cap;
 		FrameV4L2Info preview;
 		FrameV4L2Info picture;
-		struct VideoInfoBuffer mem[NB_BUFFER];
-		struct VideoInfoBuffer mem_pic[NB_PIC_BUFFER];
-		unsigned int canvas[NB_BUFFER];
+		struct VideoInfoBuffer mem[IO_PREVIEW_BUFFER];
+		struct VideoInfoBuffer mem_pic[IO_PICTURE_BUFFER];
+		//unsigned int canvas[IO_PREVIEW_BUFFER];
 		bool isStreaming;
 		bool isPicture;
 		bool canvas_mode;
