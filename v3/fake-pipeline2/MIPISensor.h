@@ -45,7 +45,10 @@ namespace android {
 			status_t setAutoFocuas(uint8_t afMode) override;
 			int getAWB(uint8_t *awbMode, uint8_t maxCount) override;
 			status_t setAWB(uint8_t awbMode) override;
+			void setSensorListener(SensorListener *listener) override;
+			uint32_t getStreamUsage(int stream_type) override;
 		private:
+			CameraVirtualDevice* mCameraVirtualDevice;
 			int mMIPIDevicefd[3];
 			//store the v4l2 info
 			CVideoInfo *mVinfo;

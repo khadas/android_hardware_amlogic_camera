@@ -46,44 +46,44 @@ typedef OMX_ERRORTYPE (*GetHandleFunc)(OMX_HANDLETYPE *, OMX_STRING, OMX_PTR, OM
 typedef OMX_ERRORTYPE (*FreeHandleFunc)(OMX_HANDLETYPE *);
 
 struct GrallocBufInfo {
-	uint32_t width;
-	uint32_t height;
-	int format;
-	uint32_t stride;
+    uint32_t width;
+    uint32_t height;
+    int format;
+    uint32_t stride;
 };
 
 class OMXDecoder
 {
 public:
-	OMXDecoder();
-	OMXDecoder(bool useDMABuffer, bool keepOriginalSize);
-	~OMXDecoder();
-	bool setParameters(uint32_t width, uint32_t height, uint32_t out_buffer_count);
-	bool initialize(const char* name);
-	bool prepareBuffers();
-	void start();
-	void freeBuffers();
-	void deinitialize();
-	//void saveNativeBufferHdr(void *buffer, int index, int bufferNum, struct GrallocBufInfo info, bool status);//omx zero-copy
-	OMX_BUFFERHEADERTYPE* dequeueInputBuffer();
-	void queueInputBuffer(OMX_BUFFERHEADERTYPE* pBufferHdr);
-	//ANativeWindowBuffer * dequeueOutputBuffer();
-	//native_handle_t * dequeueOutputBuffer();
-	OMX_BUFFERHEADERTYPE* dequeueOutputBuffer();
-	//void releaseOutputBuffer(ANativeWindowBuffer * pBufferHdr);
-	//void releaseOutputBuffer(native_handle_t * pBufferHdr);
+    OMXDecoder();
+    OMXDecoder(bool useDMABuffer, bool keepOriginalSize);
+    ~OMXDecoder();
+    bool setParameters(uint32_t width, uint32_t height, uint32_t out_buffer_count);
+    bool initialize(const char* name);
+    bool prepareBuffers();
+    void start();
+    void freeBuffers();
+    void deinitialize();
+    //void saveNativeBufferHdr(void *buffer, int index, int bufferNum, struct GrallocBufInfo info, bool status);//omx zero-copy
+    OMX_BUFFERHEADERTYPE* dequeueInputBuffer();
+    void queueInputBuffer(OMX_BUFFERHEADERTYPE* pBufferHdr);
+    //ANativeWindowBuffer * dequeueOutputBuffer();
+    //native_handle_t * dequeueOutputBuffer();
+    OMX_BUFFERHEADERTYPE* dequeueOutputBuffer();
+    //void releaseOutputBuffer(ANativeWindowBuffer * pBufferHdr);
+    //void releaseOutputBuffer(native_handle_t * pBufferHdr);
     void releaseOutputBuffer(OMX_BUFFERHEADERTYPE* pBufferHdr);
 
-	template<class T> void InitOMXParams(T *params);
+    template<class T> void InitOMXParams(T *params);
 
-	OMX_ERRORTYPE OnEvent(
-			OMX_IN OMX_EVENTTYPE eEvent,
+    OMX_ERRORTYPE OnEvent(
+            OMX_IN OMX_EVENTTYPE eEvent,
             OMX_IN OMX_U32 nData1,
             OMX_IN OMX_U32 nData2,
             OMX_IN OMX_PTR pEventData);
 
-	OMX_ERRORTYPE emptyBufferDone(OMX_IN OMX_BUFFERHEADERTYPE *pBuffer);
-	OMX_ERRORTYPE fillBufferDone(OMX_IN OMX_BUFFERHEADERTYPE *pBuffer);
+    OMX_ERRORTYPE emptyBufferDone(OMX_IN OMX_BUFFERHEADERTYPE *pBuffer);
+    OMX_ERRORTYPE fillBufferDone(OMX_IN OMX_BUFFERHEADERTYPE *pBuffer);
 
   static OMX_ERRORTYPE OnEvent(
           OMX_IN OMX_HANDLETYPE hComponent,
@@ -103,24 +103,27 @@ public:
           OMX_IN OMX_PTR pAppData,
           OMX_IN OMX_BUFFERHEADERTYPE *pBuffer);
 
-	static OMX_CALLBACKTYPE kCallbacks;
+    static OMX_CALLBACKTYPE kCallbacks;
+    int Decode(uint8_t*src, size_t src_size,
+                                  int dst_fd,uint8_t *dst_buf,
+                                  size_t dst_w, size_t dst_h);
 private:
-	OMX_ERRORTYPE WaitForState(OMX_HANDLETYPE hComponent, OMX_STATETYPE eTestState, OMX_STATETYPE eTestState2);
-	OMX_U32 mWidth;
-	OMX_U32 mHeight;
-	int mFormat;
-	uint32_t mStride;
-	int mIonFd;
-	bool mUseDMABuffer;
-	bool mKeepOriginalSize;
-	OMX_PARAM_PORTDEFINITIONTYPE mVideoInputPortParam;
-	OMX_PARAM_PORTDEFINITIONTYPE mVideoOutputPortParam;
-	OMX_BUFFERHEADERTYPE mInOutPutBufferParam;
-	OMX_HANDLETYPE mVDecoderHandle;
-	Mutex mInputBufferLock;
-	List<OMX_BUFFERHEADERTYPE*> mListOfInputBufferHeader;
-	Mutex mOutputBufferLock;
-	List<OMX_BUFFERHEADERTYPE*> mListOfOutputBufferHeader;
+    OMX_ERRORTYPE WaitForState(OMX_HANDLETYPE hComponent, OMX_STATETYPE eTestState, OMX_STATETYPE eTestState2);
+    OMX_U32 mWidth;
+    OMX_U32 mHeight;
+    int mFormat;
+    uint32_t mStride;
+    int mIonFd;
+    bool mUseDMABuffer;
+    bool mKeepOriginalSize;
+    OMX_PARAM_PORTDEFINITIONTYPE mVideoInputPortParam;
+    OMX_PARAM_PORTDEFINITIONTYPE mVideoOutputPortParam;
+    OMX_BUFFERHEADERTYPE mInOutPutBufferParam;
+    OMX_HANDLETYPE mVDecoderHandle;
+    Mutex mInputBufferLock;
+    List<OMX_BUFFERHEADERTYPE*> mListOfInputBufferHeader;
+    Mutex mOutputBufferLock;
+    List<OMX_BUFFERHEADERTYPE*> mListOfOutputBufferHeader;
 
   struct out_buffer_t {
       int index;
@@ -131,30 +134,36 @@ private:
       OMX_BUFFERHEADERTYPE * pBuffer;
   };
 
-	struct out_buffer_t *mOutBuffer;
-	int mNoFreeFlag;
-	OMX_BUFFERHEADERTYPE **mppBuffer;
+    struct out_buffer_t *mOutBuffer;
+    int mNoFreeFlag;
+    OMX_BUFFERHEADERTYPE **mppBuffer;
 
-	//native buffer
-	uint32_t mOutBufferCount;
+    //native buffer
+    uint32_t mOutBufferCount;
   struct out_buffer_native {
       //ANativeWindowBuffer *mOutputNativeBuffer;
-	  native_handle_t* handle;
+      native_handle_t* handle;
       OMX_BUFFERHEADERTYPE *pBuffer;
       bool isQueued;
   };
-	struct out_buffer_native *mOutBufferNative;
+    struct out_buffer_native *mOutBufferNative;
 
-	void* mLibHandle;
-	InitFunc mInit;
-	DeinitFunc mDeinit;
-	GetHandleFunc mGetHandle;
-	FreeHandleFunc mFreeHandle;
-	OMX_STRING mDecoderComponentName;
-	OMX_VERSIONTYPE mSpecVersion;
-	bool normal_buffer_init(int buffer_size);
-	bool ion_buffer_init();
-	void free_ion_buffer();
-	void free_normal_buffer();
+    void* mLibHandle;
+    InitFunc mInit;
+    DeinitFunc mDeinit;
+    GetHandleFunc mGetHandle;
+    FreeHandleFunc mFreeHandle;
+    OMX_STRING mDecoderComponentName;
+    OMX_VERSIONTYPE mSpecVersion;
+    int mDequeueFailNum;
+    uint8_t* mTempFrame[3];
+private:
+    void QueueBuffer(uint8_t* src, size_t size);
+    int DequeueBuffer(int dst_fd ,uint8_t* dst_buf,
+                                size_t dst_w, size_t dst_h);
+    bool normal_buffer_init(int buffer_size);
+    bool ion_buffer_init();
+    void free_ion_buffer();
+    void free_normal_buffer();
 };
 #endif

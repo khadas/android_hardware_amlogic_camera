@@ -191,7 +191,7 @@ class Sensor: public Thread, public virtual RefBase {
     virtual status_t setOutputFormat(int width, int height, int pixelformat, bool isjpeg);
     void setPictureRotate(int rotate);
     int getPictureRotate();
-    uint32_t getStreamUsage(int stream_type);
+    virtual uint32_t getStreamUsage(int stream_type);
 
     virtual status_t streamOn();
     virtual status_t streamOff();
@@ -272,7 +272,7 @@ class Sensor: public Thread, public virtual RefBase {
         virtual ~SensorListener();
     };
 
-    void setSensorListener(SensorListener *listener);
+    virtual void setSensorListener(SensorListener *listener);
 
     /**
      * Static sensor characteristics
@@ -379,7 +379,7 @@ class Sensor: public Thread, public virtual RefBase {
 
     Scene mScene;
 
-    virtual int captureNewImageWithGe2d();
+    //virtual int captureNewImageWithGe2d();
     virtual int captureNewImage();
     void captureRaw(uint8_t *img, uint32_t gain, uint32_t stride);
     void captureRGBA(uint8_t *img, uint32_t gain, uint32_t stride);

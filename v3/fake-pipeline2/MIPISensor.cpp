@@ -18,6 +18,19 @@
 #include "../EmulatedFakeCamera3.h"
 #include "Sensor.h"
 #include "MIPISensor.h"
+#include "ispaaalib.h"
+
+#if ANDROID_PLATFORM_SDK_VERSION >= 24
+#if ANDROID_PLATFORM_SDK_VERSION >= 29
+#include <amlogic/am_gralloc_usage.h>
+#else
+#include <gralloc_usage_ext.h>
+#endif
+#endif
+
+#if ANDROID_PLATFORM_SDK_VERSION >= 28
+#include <amlogic/am_gralloc_ext.h>
+#endif
 
 #define ARRAY_SIZE(x) (sizeof((x))/sizeof(((x)[0])))
 
@@ -48,6 +61,7 @@ const usb_frmsize_discrete_t kUsbAvailablePictureSize[] = {
 extern bool IsUsbAvailablePictureSize(const usb_frmsize_discrete_t AvailablePictureSize[], uint32_t width, uint32_t height);
 
 MIPISensor::MIPISensor() {
+    mCameraVirtualDevice = nullptr;
     mVinfo = NULL;
     ALOGD("create MIPISensor");
 }
@@ -110,26 +124,36 @@ status_t MIPISensor::startUp(int idx) {
 int MIPISensor::camera_open(int idx) {
     int ret = 0;
     char dev_name[128];
-    sprintf(dev_name, "/dev/video%d",idx);
-    mMIPIDevicefd[0] = open(dev_name, O_RDWR | O_NONBLOCK);
+    //sprintf(dev_name, "/dev/video%d",idx);
+    if (mCameraVirtualDevice == nullptr)
+        mCameraVirtualDevice = CameraVirtualDevice::getInstance();
+    mMIPIDevicefd[0] = mCameraVirtualDevice->openVirtualDevice(idx);
     if (mMIPIDevicefd[0] < 0) {
-        ALOGE("open %s failed, errno=%d\n", dev_name, errno);
+        ALOGE("open %s failed, %s\n", dev_name, strerror(errno));
         ret = -ENOTTY;
     }
     ALOGD("open %s ok !", dev_name);
     mVinfo->fd = mMIPIDevicefd[0];
+#ifdef ISP_ENABLE
     ALOGD( "enable isp lib");
-    //isp_lib_enable();
+    isp_lib_enable();
+#endif
     return ret;
 }
 
 void MIPISensor::camera_close(void) {
-    if (close(mMIPIDevicefd[0]) != 0)
-        DBG_LOGB("close MIPISensor failed, errno=%d\n", errno);
-    else
-        mMIPIDevicefd[0] = -1;
+    ALOGV("%s: E", __FUNCTION__);
+    if (mMIPIDevicefd[0] < 0)
+        return;
+    if (mCameraVirtualDevice == nullptr)
+        mCameraVirtualDevice = CameraVirtualDevice::getInstance();
+
+    mCameraVirtualDevice->releaseVirtualDevice(mVinfo->idx,mMIPIDevicefd[0]);
+    mMIPIDevicefd[0] = -1;
+#ifdef ISP_ENABLE
     ALOGD( "disable isp lib");
-    //isp_lib_disable();
+    isp_lib_disable();
+#endif
 }
 
 void MIPISensor::InitVideoInfo(int idx) {
@@ -159,6 +183,25 @@ status_t MIPISensor::shutDown() {
     mSensorWorkFlag = false;
     ALOGD("%s: Exit", __FUNCTION__);
     return res;
+}
+
+uint32_t MIPISensor::getStreamUsage(int stream_type){
+    ATRACE_CALL();
+    uint32_t usage = Sensor::getStreamUsage(stream_type);
+    usage = (GRALLOC_USAGE_HW_TEXTURE
+            | GRALLOC_USAGE_HW_RENDER
+            | GRALLOC_USAGE_SW_READ_MASK
+            | GRALLOC_USAGE_SW_WRITE_MASK
+            );
+
+#if ANDROID_PLATFORM_SDK_VERSION >= 28
+        usage = am_gralloc_get_omx_osd_producer_usage();
+#else
+        usage = GRALLOC_USAGE_HW_VIDEO_ENCODER | GRALLOC_USAGE_AML_DMA_BUFFER;
+#endif
+
+    ALOGV("%s: usage=0x%x", __FUNCTION__,usage);
+    return usage;
 }
 
 void MIPISensor::captureRGB(uint8_t *img, uint32_t gain, uint32_t stride){
@@ -1494,6 +1537,9 @@ status_t MIPISensor::setAWB(uint8_t awbMode) {
     }
     ret = ioctl(mVinfo->fd, VIDIOC_S_CTRL, &ctl);
     return ret;
+}
+void MIPISensor::setSensorListener(SensorListener *listener) {
+    Sensor::setSensorListener(listener);
 }
 
 }
