@@ -46,9 +46,14 @@ LOCAL_CFLAGS+=-DCAMHAL_HOSTNAME=\"${CAMHAL_HOSTNAME}\"
 LOCAL_CFLAGS+=-DCAMHAL_IP=\"${CAMHAL_IP}\"
 LOCAL_CFLAGS+=-DCAMHAL_PATH=\"${CAMHAL_PATH}\"
 ########################################################################################################
-GE2D_ENABLE := false
-GE2D_VERSION_2 := false
-ISP_ENABLE := false
+GE2D_ENABLE := true
+GE2D_VERSION_2 := true
+ifneq ($(IS_ISP_CAMERA),)
+	ISP_ENABLE := $(IS_ISP_CAMERA)
+else
+	ISP_ENABLE := false
+endif
+
 LOCAL_SHARED_LIBRARIES:= \
     libbinder \
     liblog \
