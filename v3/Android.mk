@@ -48,12 +48,6 @@ LOCAL_CFLAGS+=-DCAMHAL_PATH=\"${CAMHAL_PATH}\"
 ########################################################################################################
 GE2D_ENABLE := true
 GE2D_VERSION_2 := true
-ifneq ($(IS_ISP_CAMERA),)
-	ISP_ENABLE := $(IS_ISP_CAMERA)
-else
-	ISP_ENABLE := false
-endif
-
 LOCAL_SHARED_LIBRARIES:= \
     libbinder \
     liblog \
@@ -77,7 +71,8 @@ LOCAL_SHARED_LIBRARIES += libge2d
 endif
 LOCAL_CFLAGS += -DGE2D_ENABLE
 endif
-ifeq ($(ISP_ENABLE),true)
+
+ifeq ($(NEED_ISP),true)
 LOCAL_SHARED_LIBRARIES += libispaaa
 LOCAL_CFLAGS += -DISP_ENABLE
 endif
