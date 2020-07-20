@@ -68,6 +68,8 @@ bool OMXDecoder::initialize(const char* name) {
 
     if (0 == strcmp(name,"mjpeg"))
         mDecoderComponentName = (char *)"OMX.amlogic.mjpeg.decoder.awesome";
+    if (0 == strcmp(name,"h264"))
+        mDecoderComponentName = (char *)"OMX.amlogic.avc.decoder.awesome";
     mLibHandle = dlopen("libOmxCore.so", RTLD_NOW);
     if (mLibHandle != NULL) {
         mInit         =     (InitFunc) dlsym(mLibHandle, "OMX_Init");
@@ -140,6 +142,8 @@ bool OMXDecoder::initialize(const char* name) {
     mVideoInputPortParam.format.video.nFrameHeight = mHeight;
     if (strcmp(name,"mjpeg") == 0)
         mVideoInputPortParam.format.video.eCompressionFormat = OMX_VIDEO_CodingMJPEG;
+    if (strcmp(name,"h264") == 0)
+        mVideoInputPortParam.format.video.eCompressionFormat = OMX_VIDEO_CodingAVC;
     mVideoInputPortParam.format.video.xFramerate = (15 << 16);
     eRet = OMX_SetParameter(mVDecoderHandle, OMX_IndexParamPortDefinition, &mVideoInputPortParam);
     if (OMX_ErrorNone != eRet) {
