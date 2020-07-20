@@ -299,6 +299,13 @@ void USBSensor::initDecoder(int width, int height, int bufferCount) {
     ALOGV("%s: width=%d, height=%d",__FUNCTION__,width,height);
     switch (mUseHwType) {
         case HW_H264:
+             if (mDecoder != NULL && mIsDecoderInit == false) {
+                mDecoder->setParameters(width,height, bufferCount + 2);
+                mDecoder->initialize("h264");
+                mDecoder->prepareBuffers();
+                mDecoder->start();
+                mIsDecoderInit=true;
+            }
             if (mHalMediaCodec != NULL && mInitMediaCodec == false) {
                 mHalMediaCodec->init(width,height,"h264");
                 mInitMediaCodec=true;
@@ -640,15 +647,9 @@ void USBSensor::captureNV21(StreamBuffer b, uint32_t gain) {
                 break;
             case V4L2_PIX_FMT_H264:
                 {
-                    int ret = mHalMediaCodec->decode(src,mVinfo->preview.buf.bytesused,b.img);
-                    if (!ret) {
-                        mVinfo->putback_frame();
+                   int ret = H264ToNV21(src, b);
+                   if (ret == 1)
                         continue;
-                    }else {
-                        mDecodedBuffer = b.img;
-                        mKernelBuffer = src;
-                        mVinfo->putback_frame();
-                    }
                 }
                 break;
             default:
@@ -751,6 +752,68 @@ int USBSensor::MJPEGToNV21(uint8_t* src, StreamBuffer b) {
     }
     return flag;
 }
+
+int USBSensor::H264ToNV21(uint8_t* src, StreamBuffer b) {
+    ALOGVV("%s: E", __FUNCTION__);
+    int flag = 0;
+    size_t width = mVinfo->preview.format.fmt.pix.width;
+    size_t height = mVinfo->preview.format.fmt.pix.height;
+    size_t length = mVinfo->preview.buf.bytesused;
+
+    char property[PROPERTY_VALUE_MAX];
+    property_get("camera.debug.dump.device", property, "false");
+    if (strstr(property, "true")) {
+        static int src_index = 0;
+        dump(src_index,src,length,"src.mjpg");
+    }
+    switch (mDecodeMethod) {
+        case DECODE_MEDIACODEC:
+            {
+                int ret = mHalMediaCodec->decode(src,length,b.img);
+                if (!ret) {
+                    ALOGV("mediacodec decoder error \n");
+                    mVinfo->putback_frame();
+                    //continue;
+                    flag = 1;
+                }else {
+                    mDecodedBuffer = b.img;
+                    mTempFD = b.share_fd;
+                    mKernelBuffer = src;
+                    mVinfo->putback_frame();
+                }
+
+            }
+            break;
+        case DECODE_OMX:
+            {
+                int ret = mDecoder->Decode(src,length,
+                                            b.share_fd,b.img,
+                                            width,height);
+                if (!ret) {
+                    mVinfo->putback_frame();
+                    //continue;
+                    flag = 1;
+                } else {
+                    mDecodedBuffer = b.img;
+                    mKernelBuffer = src;
+                    mTempFD = b.share_fd;
+                    mVinfo->putback_frame();
+                }
+            }
+            break;
+        default:
+            ALOGD("not support this decode method");
+            break;
+    }
+    property_get("camera.debug.dump.decoder", property, "false");
+    if (strstr(property, "true")) {
+        static int dst_index = 0;
+        size_t size = b.width*b.height*3/2;
+        dump(dst_index,b.img, size ,"dst.yuv");
+    }
+    return flag;
+}
+
 
 void USBSensor::captureYV12(StreamBuffer b, uint32_t gain){
     uint8_t *src;

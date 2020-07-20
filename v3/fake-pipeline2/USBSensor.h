@@ -93,6 +93,7 @@ namespace android {
             void dump(int& frame_index,uint8_t* buf, int length, std::string name);
             void initDecoder(int width, int height, int bufferCount);
             int MJPEGToNV21(uint8_t* src, StreamBuffer b);
+            int H264ToNV21(uint8_t* src, StreamBuffer b);
             int SensorInit(int idx);
             void InitVideoInfo(int idx);
             int camera_open(int idx);
