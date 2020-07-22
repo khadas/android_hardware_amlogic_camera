@@ -39,15 +39,14 @@ IONInterface::~IONInterface() {
 IONInterface* IONInterface::get_instance() {
     ALOGD("%s\n", __FUNCTION__);
     Mutex::Autolock lock(&IonLock);
-    if (mIONInstance != nullptr) {
-        mIONDevice_fd = ion_open();
-        if (mIONDevice_fd < 0) {
-            ALOGE("ion_open failed, %s", strerror(errno));
-            mIONDevice_fd = -1;
-        } else {
-            mCount++;
-            return mIONInstance;
-        }
+    mCount++;
+    if (mIONInstance != nullptr)
+        return mIONInstance;
+
+    mIONDevice_fd = ion_open();
+    if (mIONDevice_fd < 0) {
+        ALOGE("ion_open failed, %s", strerror(errno));
+        mIONDevice_fd = -1;
     }
     mIONInstance = new IONInterface;
     return mIONInstance;
@@ -55,8 +54,11 @@ IONInterface* IONInterface::get_instance() {
 
 void IONInterface::put_instance() {
     ALOGD("%s\n", __FUNCTION__);
+    Mutex::Autolock lock(&IonLock);
     mCount = mCount - 1;
     if (!mCount && mIONInstance != nullptr) {
+        close(mIONDevice_fd);
+        mIONDevice_fd = -1;
         ALOGD("%s delete ION Instance \n", __FUNCTION__);
         delete mIONInstance;
         mIONInstance=nullptr;
