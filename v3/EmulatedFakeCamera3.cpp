@@ -410,27 +410,6 @@ status_t EmulatedFakeCamera3::closeCamera() {
 
 status_t EmulatedFakeCamera3::getCameraInfo(struct camera_info *info) {
     ATRACE_CALL();
-    char property[PROPERTY_VALUE_MAX];
-    info->facing = mFacingBack ? CAMERA_FACING_BACK : CAMERA_FACING_FRONT;
-    if (mSensorType == SENSOR_USB) {
-        if (mFacingBack) {
-            property_get("hw.camera.orientation.back", property, "0");
-        } else {
-            property_get("hw.camera.orientation.front", property, "0");
-        }
-        int32_t orientation = atoi(property);
-        property_get("hw.camera.usb.orientation_offset", property, "0");
-        orientation += atoi(property);
-        orientation %= 360;
-        info->orientation = orientation ;
-    } else {
-        if (mFacingBack) {
-            property_get("hw.camera.orientation.back", property, "270");
-        } else {
-            property_get("hw.camera.orientation.front", property, "90");
-        }
-        info->orientation = atoi(property);
-    }
     return EmulatedCamera3::getCameraInfo(info);
 }
 
@@ -1885,7 +1864,7 @@ status_t EmulatedFakeCamera3::constructStaticInfo() {
             const int32_t orientation = atoi(property);
             info.update(ANDROID_SENSOR_ORIENTATION, &orientation, 1);
         } else {
-            property_get("hw.camera.orientation.front", property, "90");
+            property_get("hw.camera.orientation.front", property, "0");
             const int32_t orientation = atoi(property);
             info.update(ANDROID_SENSOR_ORIENTATION, &orientation, 1);
         }
