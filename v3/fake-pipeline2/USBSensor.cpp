@@ -529,8 +529,6 @@ void USBSensor::captureRGB(uint8_t *img, uint32_t gain, uint32_t stride) {
     mVinfo->releasebuf_and_stop_picture();
 }
 
-
-
 void USBSensor::captureNV21(StreamBuffer b, uint32_t gain) {
     ALOGVV("%s: E", __FUNCTION__);
     uint8_t *src;
@@ -1881,6 +1879,70 @@ status_t USBSensor::force_reset_sensor() {
     ret = streamOn();
     DBG_LOGB("%s , ret = %d", __FUNCTION__, ret);
     return ret;
+}
+
+int USBSensor::doRotationAndMirror() {
+#ifdef GE2D_ENABLE
+    aml_ge2d_t m_Amlge2d;
+    int share_fd;
+    size_t degree;
+    bool flip = false, mirror = false;
+    char property[PROPERTY_VALUE_MAX];
+    property_get("vendor.camera.rotation", property, "0");
+    int value = atoi(property);
+    switch (value) {
+        case 0:
+        case 90:
+        case 180:
+        case 270:
+            degree = value;
+            break;
+        default:
+            degree = 0;
+            break;
+    };
+    enum {
+        HORIZANTAL = 0,
+        VERTICAL,
+    };
+    property_get("vendor.camera.mirror", property, "false");
+    if (strstr(property, "true"))
+        mirror = true;
+
+    property_get("vendor.camera.flip", property, "false");
+    if (strstr(property, "true"))
+        flip = true;
+    /*alloc buffer using ge2d device*/
+
+    for (size_t i = 0; i < mNextCapturedBuffers->size(); i++) {
+        const StreamBuffer &b = (*mNextCapturedBuffers)[i];
+        size_t width = b.width;
+        size_t height = b.height;
+        if (mirror) {
+            ge2dDevice::ge2d_alloc(width,height,&share_fd,ge2dDevice::NV12,m_Amlge2d);
+            /*copy image to memory allocated by ge2d*/
+            ge2dDevice::ge2d_copy(share_fd,b.share_fd,width,height);
+            /*if decode ok, then mirror the image*/
+            ge2dDevice::ge2d_mirror(b.share_fd,width,height,ge2dDevice::NV12,m_Amlge2d);
+        }
+        if (flip) {
+            ge2dDevice::ge2d_alloc(width,height,&share_fd,ge2dDevice::NV12,m_Amlge2d);
+            ge2dDevice::ge2d_copy(share_fd,b.share_fd,width,height);
+            /*if decode ok, then mirror the image*/
+            ge2dDevice::ge2d_flip(b.share_fd,width,height,ge2dDevice::NV12,m_Amlge2d);
+        }
+        if (!!degree) {
+            ge2dDevice::ge2d_alloc(width,height,&share_fd,ge2dDevice::NV12,m_Amlge2d);
+            /*copy image to memory allocated by ge2d*/
+            ge2dDevice::ge2d_copy(share_fd,b.share_fd,width,height);
+            /*if decode ok, then rotate the image*/
+            ge2dDevice::ge2d_rotation(b.share_fd,width,height,ge2dDevice::NV12,degree,m_Amlge2d);
+        }
+    }
+    return 0;
+#else
+    return 0;
+#endif
 }
 
 int USBSensor::captureNewImage() {

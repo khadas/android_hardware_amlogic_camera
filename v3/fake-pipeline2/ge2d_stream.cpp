@@ -224,8 +224,160 @@ int ge2dDevice::ge2d_copy_internal(int dst_fd, int dst_alloc_type,int src_fd,
 
 }
 
+int ge2dDevice::ge2d_mirror(int dst_fd,size_t src_w,
+                size_t src_h,int fmt,aml_ge2d_t& amlge2d) {
+   int ret = 0;
+   amlge2d.ge2dinfo.dst_info.canvas_w = src_w;
+   amlge2d.ge2dinfo.dst_info.canvas_h = src_h;
+   switch (fmt) {
+       case NV12:
+           amlge2d.ge2dinfo.dst_info.format = PIXEL_FORMAT_YCbCr_420_SP_NV12;
+           break;
+       case RGB:
+           amlge2d.ge2dinfo.dst_info.format = PIXEL_FORMAT_RGB_888;
+           break;
+       default:
+           amlge2d.ge2dinfo.dst_info.format = PIXEL_FORMAT_YCbCr_420_SP_NV12;
+           break;
+   }
+   amlge2d.ge2dinfo.dst_info.plane_number = 1;
+   amlge2d.ge2dinfo.dst_info.shared_fd[0] = dst_fd;
+   amlge2d.ge2dinfo.dst_info.rotation = GE2D_ROTATION_0;
+   amlge2d.ge2dinfo.offset = 0;
+
+   amlge2d.ge2dinfo.blend_mode = BLEND_MODE_PREMULTIPLIED;
+
+   amlge2d.ge2dinfo.src_info[0].memtype = GE2D_CANVAS_ALLOC;
+   amlge2d.ge2dinfo.src_info[0].mem_alloc_type = AML_GE2D_MEM_ION;
+   amlge2d.ge2dinfo.dst_info.memtype = GE2D_CANVAS_ALLOC;
+   amlge2d.ge2dinfo.dst_info.mem_alloc_type = AML_GE2D_MEM_ION;
+
+   amlge2d.ge2dinfo.src_info[0].rect.x = 0;
+   amlge2d.ge2dinfo.src_info[0].rect.y = 0;
+   amlge2d.ge2dinfo.src_info[0].rect.w = src_w;
+   amlge2d.ge2dinfo.src_info[0].rect.h = src_h;
+   amlge2d.ge2dinfo.src_info[0].layer_mode = 0;
+   amlge2d.ge2dinfo.src_info[0].plane_number = 1;
+   amlge2d.ge2dinfo.src_info[0].plane_alpha = 0xff;
+
+   amlge2d.ge2dinfo.dst_info.shared_fd[0] = dst_fd;
+   amlge2d.ge2dinfo.dst_info.plane_number = 1;
+
+   amlge2d.ge2dinfo.dst_info.rect.x = 0;
+   amlge2d.ge2dinfo.dst_info.rect.y = 0;
+   amlge2d.ge2dinfo.dst_info.rect.w = src_w;
+   amlge2d.ge2dinfo.dst_info.rect.h = src_h;
+   amlge2d.ge2dinfo.dst_info.rotation = GE2D_ROTATION_0;
+   switch (fmt) {
+       case NV12:
+           amlge2d.ge2dinfo.color = 0x008080ff;
+           break;
+       case RGB:
+           amlge2d.ge2dinfo.color = 0;
+           break;
+       default:
+           amlge2d.ge2dinfo.color = 0x008080ff;
+           break;
+   }
+    amlge2d.ge2dinfo.ge2d_op = AML_GE2D_STRETCHBLIT;
+
+    amlge2d.ge2dinfo.dst_info.rotation = GE2D_MIRROR_X;
+
+    ret = aml_ge2d_process(&amlge2d.ge2dinfo);
+    if (ret < 0) {
+        aml_ge2d_exit(&amlge2d);
+        ALOGVV("%s: %s", __FUNCTION__,strerror(errno));
+        return ret;
+    }
+
+    amlge2d.ge2dinfo.dst_info.memtype = GE2D_CANVAS_TYPE_INVALID;
+    amlge2d.ge2dinfo.dst_info.mem_alloc_type = AML_GE2D_MEM_INVALID;
+    amlge2d.ge2dinfo.dst_info.plane_number = 0;
+    amlge2d.ge2dinfo.dst_info.shared_fd[0] = -1;
+
+   aml_ge2d_mem_free(&amlge2d);
+
+   aml_ge2d_exit(&amlge2d);
+   return 0;
+}
 int ge2dDevice::imageScaler()
 {
+    return 0;
+}
+
+int ge2dDevice::ge2d_flip(int dst_fd,size_t src_w,
+                              size_t src_h,int fmt,aml_ge2d_t& amlge2d)
+{
+    amlge2d.ge2dinfo.dst_info.canvas_w = src_w;
+    amlge2d.ge2dinfo.dst_info.canvas_h = src_h;
+    switch (fmt) {
+        case NV12:
+            amlge2d.ge2dinfo.dst_info.format = PIXEL_FORMAT_YCbCr_420_SP_NV12;
+            break;
+        case RGB:
+            amlge2d.ge2dinfo.dst_info.format = PIXEL_FORMAT_RGB_888;
+            break;
+        default:
+            amlge2d.ge2dinfo.dst_info.format = PIXEL_FORMAT_YCbCr_420_SP_NV12;
+            break;
+    }
+    amlge2d.ge2dinfo.dst_info.plane_number = 1;
+    amlge2d.ge2dinfo.dst_info.shared_fd[0] = dst_fd;
+    amlge2d.ge2dinfo.offset = 0;
+
+    amlge2d.ge2dinfo.blend_mode = BLEND_MODE_PREMULTIPLIED;
+
+    amlge2d.ge2dinfo.src_info[0].memtype = GE2D_CANVAS_ALLOC;
+    amlge2d.ge2dinfo.src_info[0].mem_alloc_type = AML_GE2D_MEM_ION;
+    amlge2d.ge2dinfo.dst_info.memtype = GE2D_CANVAS_ALLOC;
+    amlge2d.ge2dinfo.dst_info.mem_alloc_type = AML_GE2D_MEM_ION;
+
+    amlge2d.ge2dinfo.src_info[0].rect.x = 0;
+    amlge2d.ge2dinfo.src_info[0].rect.y = 0;
+    amlge2d.ge2dinfo.src_info[0].rect.w = src_w;
+    amlge2d.ge2dinfo.src_info[0].rect.h = src_h;
+    amlge2d.ge2dinfo.src_info[0].layer_mode = 0;
+    amlge2d.ge2dinfo.src_info[0].plane_number = 1;
+    amlge2d.ge2dinfo.src_info[0].plane_alpha = 0xff;
+
+    amlge2d.ge2dinfo.dst_info.shared_fd[0] = dst_fd;
+    amlge2d.ge2dinfo.dst_info.plane_number = 1;
+
+    amlge2d.ge2dinfo.dst_info.rect.x = 0;
+    amlge2d.ge2dinfo.dst_info.rect.y = 0;
+    amlge2d.ge2dinfo.dst_info.rect.w = src_w;
+    amlge2d.ge2dinfo.dst_info.rect.h = src_h;
+    amlge2d.ge2dinfo.dst_info.rotation = GE2D_ROTATION_0;
+    switch (fmt) {
+        case NV12:
+            amlge2d.ge2dinfo.color = 0x008080ff;
+            break;
+        case RGB:
+            amlge2d.ge2dinfo.color = 0;
+            break;
+        default:
+            amlge2d.ge2dinfo.color = 0x008080ff;
+            break;
+    }
+    amlge2d.ge2dinfo.ge2d_op = AML_GE2D_STRETCHBLIT;
+    amlge2d.ge2dinfo.dst_info.rotation = GE2D_MIRROR_Y;
+
+    int ret = aml_ge2d_process(&amlge2d.ge2dinfo);
+    if (ret < 0) {
+        aml_ge2d_exit(&amlge2d);
+        ALOGVV("%s: %s", __FUNCTION__,strerror(errno));
+        return ret;
+    }
+
+    amlge2d.ge2dinfo.dst_info.memtype = GE2D_CANVAS_TYPE_INVALID;
+    amlge2d.ge2dinfo.dst_info.mem_alloc_type = AML_GE2D_MEM_INVALID;
+    amlge2d.ge2dinfo.dst_info.plane_number = 0;
+    amlge2d.ge2dinfo.dst_info.shared_fd[0] = -1;
+
+    aml_ge2d_mem_free(&amlge2d);
+
+    aml_ge2d_exit(&amlge2d);
+
     return 0;
 }
 
@@ -317,7 +469,7 @@ int ge2dDevice::ge2d_rotation(int dst_fd,size_t src_w,
     }
 
     amlge2d.ge2dinfo.ge2d_op = AML_GE2D_STRETCHBLIT;
-    float ratio = (src_h*1.0)/(src_w*1.0);
+    /*float ratio = (src_h*1.0)/(src_w*1.0);
     switch (degree) {
         case 0:
             amlge2d.ge2dinfo.dst_info.rect.x = 0;
@@ -350,8 +502,27 @@ int ge2dDevice::ge2d_rotation(int dst_fd,size_t src_w,
         default:
             break;
     }
-
-
+    */
+    amlge2d.ge2dinfo.dst_info.rect.x = 0;
+    amlge2d.ge2dinfo.dst_info.rect.y = 0;
+    amlge2d.ge2dinfo.dst_info.rect.w = src_w;
+    amlge2d.ge2dinfo.dst_info.rect.h = src_h;
+    switch (degree) {
+        case 0:
+            amlge2d.ge2dinfo.dst_info.rotation = GE2D_ROTATION_0;
+            break;
+        case 90:
+            amlge2d.ge2dinfo.dst_info.rotation = GE2D_ROTATION_90;
+            break;
+        case 180:
+            amlge2d.ge2dinfo.dst_info.rotation = GE2D_ROTATION_180;
+            break;
+        case 270:
+            amlge2d.ge2dinfo.dst_info.rotation = GE2D_ROTATION_270;
+            break;
+        default:
+            break;
+    };
     ret = aml_ge2d_process(&amlge2d.ge2dinfo);
     if (ret < 0) {
         aml_ge2d_exit(&amlge2d);

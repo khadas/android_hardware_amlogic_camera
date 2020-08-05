@@ -379,7 +379,7 @@ class Sensor: public Thread, public virtual RefBase {
 
     Scene mScene;
 
-    //virtual int captureNewImageWithGe2d();
+    virtual int doRotationAndMirror(){return 0;};
     virtual int captureNewImage();
     void captureRaw(uint8_t *img, uint32_t gain, uint32_t stride);
     void captureRGBA(uint8_t *img, uint32_t gain, uint32_t stride);
