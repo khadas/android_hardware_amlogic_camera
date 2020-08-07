@@ -1716,34 +1716,6 @@ status_t EmulatedFakeCamera3::constructStaticInfo() {
     else
         ALOGE("sensor object can not is NULL");
 
-    if ( mSensorType == SENSOR_USB) {
-        char property[PROPERTY_VALUE_MAX];
-        property_get("ro.media.camera_usb.faceback", property, "false");
-        if (strstr(property, "true"))
-            mFacingBack = 1;
-        else
-            mFacingBack = 0;
-        ALOGI("Setting usb camera cameraID:%d to back camera:%s\n",
-                     mCameraID, property);
-    } else {
-        if (mSensor->mSensorFace == SENSOR_FACE_FRONT) {
-            mFacingBack = 0;
-        } else if (mSensor->mSensorFace == SENSOR_FACE_BACK) {
-            mFacingBack = 1;
-        } else if (mSensor->mSensorFace == SENSOR_FACE_NONE) {
-            if (gEmulatedCameraFactory.getEmulatedCameraNum() == 1) {
-                mFacingBack = 1;
-            } else if ( mCameraID == 0) {
-                mFacingBack = 1;
-            } else {
-                mFacingBack = 0;
-            }
-        }
-
-        ALOGI("Setting on board camera cameraID:%d to back camera:%d[0 false, 1 true]\n",
-                     mCameraID, mFacingBack);
-    }
-
     mSupportCap = mSensor->IoctlStateProbe();
     if (mSupportCap & IOCTL_MASK_ROTATE) {
         supportrotate = true;
@@ -1784,11 +1756,43 @@ status_t EmulatedFakeCamera3::constructStaticInfo() {
 
     /*lens facing related camera feature*/
     /*camera feature setting in /device/amlogic/xxx/xxx.mk files*/
-    uint8_t lensFacing = mFacingBack ?
-            ANDROID_LENS_FACING_BACK : ANDROID_LENS_FACING_FRONT;
+    uint8_t lensFacing = ANDROID_LENS_FACING_BACK;
    /*in cdd , usb camera is external facing*/
-   if ( mSensorType == SENSOR_USB )
+   if ( mSensorType == SENSOR_USB ) {
+        property_get("ro.vendor.camera_usb.force.back", property, NULL);
+        if (strstr(property, "true")) {
+          lensFacing =  ANDROID_LENS_FACING_BACK;
+          mFacingBack = 1;
+        } else if (strstr(property, "false")) {
+          lensFacing = ANDROID_LENS_FACING_FRONT;
+          mFacingBack = 0;
+        } else {
+          // Default facing external using for cts
           lensFacing = ANDROID_LENS_FACING_EXTERNAL;
+          mFacingBack = 0;
+        }
+       } else {
+        if (mSensor->mSensorFace == SENSOR_FACE_FRONT) {
+            mFacingBack = 0;
+            lensFacing = ANDROID_LENS_FACING_FRONT;
+        } else if (mSensor->mSensorFace == SENSOR_FACE_BACK) {
+            mFacingBack = 1;
+            lensFacing =  ANDROID_LENS_FACING_BACK;
+        } else if (mSensor->mSensorFace == SENSOR_FACE_NONE) {
+            property_get("ro.vendor.camera_mipi.force.back", property, NULL);
+            if (strstr(property, "true")) {
+                mFacingBack = 1;
+                lensFacing =  ANDROID_LENS_FACING_BACK;
+            } else if (strstr(property, "false")) {
+                mFacingBack = 0;
+                lensFacing =  ANDROID_LENS_FACING_FRONT;
+            } else {
+                // Default facing front
+                mFacingBack = 0;
+                lensFacing =  ANDROID_LENS_FACING_FRONT;
+            }
+        }
+       }
 
     info.update(ANDROID_LENS_FACING, &lensFacing, 1);
 
