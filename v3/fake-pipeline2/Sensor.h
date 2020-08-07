@@ -378,8 +378,6 @@ class Sensor: public Thread, public virtual RefBase {
     Buffers *mNextCapturedBuffers;
 
     Scene mScene;
-
-    virtual int doRotationAndMirror(){return 0;};
     virtual int captureNewImage();
     void captureRaw(uint8_t *img, uint32_t gain, uint32_t stride);
     void captureRGBA(uint8_t *img, uint32_t gain, uint32_t stride);
