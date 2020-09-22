@@ -203,6 +203,7 @@ int EmulatedCameraFactory::getValidCameraId() {
 int EmulatedCameraFactory::cameraDeviceOpen(int camera_id, hw_device_t** device)
 {
     ALOGV("%s: id = %d", __FUNCTION__, camera_id);
+    int valid_id;
     *device = NULL;
 
     updateLogLevels();
@@ -217,12 +218,15 @@ int EmulatedCameraFactory::cameraDeviceOpen(int camera_id, hw_device_t** device)
              __FUNCTION__, camera_id, getEmulatedCameraNum());
         return -ENODEV;
     }
-    return mEmulatedCameras[camera_id]->connectCamera(device);
+    valid_id = getValidCameraId();
+    //return mEmulatedCameras[camera_id]->connectCamera(device);
+    return mEmulatedCameras[valid_id]->connectCamera(device);
 }
 
 int EmulatedCameraFactory::getCameraInfo(int camera_id, struct camera_info* info)
 {
     ALOGV("%s: id = %d", __FUNCTION__, camera_id);
+    int valid_id;
     if (!isConstructedOK()) {
         ALOGE("%s: EmulatedCameraFactory has failed to initialize", __FUNCTION__);
         return -EINVAL;
@@ -233,7 +237,9 @@ int EmulatedCameraFactory::getCameraInfo(int camera_id, struct camera_info* info
              __FUNCTION__, camera_id, getEmulatedCameraNum());
         return -ENODEV;
     }
-    return mEmulatedCameras[camera_id]->getCameraInfo(info);
+    valid_id = getValidCameraId();
+    //return mEmulatedCameras[camera_id]->getCameraInfo(info);
+    return mEmulatedCameras[valid_id]->getCameraInfo(info);
 }
 
 int EmulatedCameraFactory::setCallbacks(
