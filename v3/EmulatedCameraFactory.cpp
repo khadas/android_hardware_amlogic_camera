@@ -180,13 +180,11 @@ EmulatedCameraFactory::~EmulatedCameraFactory()
     }
 }
 
-int EmulatedCameraFactory::getValidCameraId(int cameraId) {
+int EmulatedCameraFactory::getValidCameraId() {
     int iValidId = 0;
     int state = get_sysfs_int(MIPI_CAMERA_STATE);
 
     for (int i = 0; i < MAX_CAMERA_NUM; i++ ) {
-        if(i != cameraId)
-           continue;
         if (state == 1) {
             if (0 == access(BOARD_SENSOR_PATH[i], F_OK | R_OK | W_OK)) {
                 iValidId = i;

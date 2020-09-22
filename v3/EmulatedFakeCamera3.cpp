@@ -289,9 +289,7 @@ status_t EmulatedFakeCamera3::connectCamera(hw_device_t** device) {
         return res;
     }
 
-    char name[64];
-    sprintf(name,"readoutThread%d",mCameraID);
-    res = mReadoutThread->run(name);
+    res = mReadoutThread->run("EmuCam3::readoutThread");
     if (res != NO_ERROR) return res;
 
     // Initialize fake 3A
@@ -1835,7 +1833,7 @@ status_t EmulatedFakeCamera3::constructStaticInfo() {
             const int32_t orientation = atoi(property);
             info.update(ANDROID_SENSOR_ORIENTATION, &orientation, 1);
         } else {
-            property_get("hw.camera.orientation.front", property, "0");
+            property_get("hw.camera.orientation.front", property, "90");
             const int32_t orientation = atoi(property);
             info.update(ANDROID_SENSOR_ORIENTATION, &orientation, 1);
         }

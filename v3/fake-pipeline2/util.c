@@ -91,13 +91,13 @@ void nv21_to_rgb24(unsigned char *buf, unsigned char *rgb, int width, int height
     }
 }
 
-void nv21_memcpy_align32(unsigned char *dst, unsigned char *src, int width, int height, int offset, int s_stride)
+void nv21_memcpy_align32(unsigned char *dst, unsigned char *src, int width, int height)
 {
-        int stride = (s_stride + 31) & ( ~31);
+        int stride = (width + 31) & ( ~31);
         int h;
         for (h = 0; h < height* 3/2; h++)
         {
-                memcpy( dst, src + offset, width);
+                memcpy( dst, src, width);
                 dst += width;
                 src += stride;
         }
