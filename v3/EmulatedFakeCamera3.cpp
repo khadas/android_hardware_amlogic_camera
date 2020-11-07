@@ -1787,9 +1787,9 @@ status_t EmulatedFakeCamera3::constructStaticInfo() {
                 mFacingBack = 0;
                 lensFacing =  ANDROID_LENS_FACING_FRONT;
             } else {
-                // Default facing front
-                mFacingBack = 0;
-                lensFacing =  ANDROID_LENS_FACING_FRONT;
+                // Default facing back
+                mFacingBack = 1;
+                lensFacing =  ANDROID_LENS_FACING_BACK;
             }
         }
        }
