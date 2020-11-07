@@ -25,7 +25,7 @@
 #define ARRAY_SIZE(x) (sizeof((x))/sizeof(((x)[0])))
 
 CameraVirtualDevice* CameraVirtualDevice::mInstance = nullptr;
-
+#define MIPI_CAMERA_STATE  "/sys/class/camera/cam_state"
 struct VirtualDevice CameraVirtualDevice::videoDevices[] = {
         {"/dev/video0",1,{FREED_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1}},
         {"/dev/video1",1,{FREED_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1}},
@@ -36,6 +36,22 @@ struct VirtualDevice CameraVirtualDevice::videoDevices[] = {
         {"/dev/video50",3,{FREED_DEVICE,NONE_DEVICE,FREED_DEVICE},{-1,-1,-1}},
         {"/dev/video51",3,{FREED_DEVICE,NONE_DEVICE,FREED_DEVICE},{-1,-1,-1}}
 };
+
+static int get_sysfs_int(const char *path)
+{
+    int val = -1;
+    int fd = open(path, O_RDONLY);
+    if (fd >= 0) {
+       char value[16];
+       read(fd, value, sizeof (value));
+       val = strtol(value, NULL, 10);
+       close(fd);
+    } else {
+       ALOGD("unable to open file %s\n", path);
+       return -1;
+    }
+    return val;
+}
 
 int CameraVirtualDevice::openVirtualDevice(int id) {
     ALOGD("%s: id = %d E", __FUNCTION__,id);
@@ -51,10 +67,19 @@ int CameraVirtualDevice::openVirtualDevice(int id) {
         ALOGD("%s: scan device %s ", __FUNCTION__,pDev->name);
         for (int j = 0; j < pDev->streamNum; j++) {
             if (pDev->status[j] == FREED_DEVICE) {
-                if (count != id) {
-                    count++;
-                    ALOGD("%s: device number is %d ",__FUNCTION__,count);
-                    continue;
+                int state = get_sysfs_int(MIPI_CAMERA_STATE);
+                if (state == 1) {
+                    if (count == id) {
+                        count++;
+                        ALOGD("%s: device number is %d ",__FUNCTION__,count);
+	                continue;
+	            }
+                } else {
+                    if (count != id) {
+                        count++;
+	                ALOGD("%s: device number is %d ",__FUNCTION__,count);
+	                continue;
+	            }
                 }
                 ALOGD("%s:open device %s, device number=%d ",__FUNCTION__,pDev->name,count);
                 int fd = open(pDev->name,O_RDWR | O_NONBLOCK);
