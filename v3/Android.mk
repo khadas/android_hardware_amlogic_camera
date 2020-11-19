@@ -182,7 +182,7 @@ include $(BUILD_SHARED_LIBRARY)
 include $(CLEAR_VARS)
 
 LOCAL_MODULE := libispaaa
-ifneq ($(ANDROID_BUILD_TYPE),64)
+ifeq ($(KERNEL_A32_SUPPORT), true)
 LOCAL_SRC_FILES := isplib/lib/libispaaa.so
 else
 LOCAL_SRC_FILES := isplib/lib64/libispaaa.so
