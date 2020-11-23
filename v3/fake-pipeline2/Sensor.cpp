@@ -1220,6 +1220,7 @@ bool Sensor::threadLoop() {
         //} else {
             captureNewImage();
         //}
+           doRotationAndMirror();
         mFramecount ++;
         ALOGVV("Sensor vertical blanking interval");
         nsecs_t workDoneRealTime = systemTime();
