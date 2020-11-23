@@ -1,5 +1,5 @@
-//#define LOG_NDEBUG  0
-//#define LOG_NNDEBUG 0
+#define LOG_NDEBUG  0
+#define LOG_NNDEBUG 0
 
 #define LOG_TAG "VirtualCameraDevice"
 
@@ -27,97 +27,163 @@
 CameraVirtualDevice* CameraVirtualDevice::mInstance = nullptr;
 #define MIPI_CAMERA_STATE  "/sys/class/camera/cam_state"
 struct VirtualDevice CameraVirtualDevice::videoDevices[] = {
-        {"/dev/video0",1,{FREED_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1}},
-        {"/dev/video1",1,{FREED_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1}},
-        {"/dev/video2",1,{FREED_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1}},
-        {"/dev/video3",1,{FREED_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1}},
-        {"/dev/video4",1,{FREED_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1}},
-        {"/dev/video5",1,{FREED_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1}},
-        {"/dev/video50",3,{FREED_DEVICE,NONE_DEVICE,FREED_DEVICE},{-1,-1,-1}},
-        {"/dev/video51",3,{FREED_DEVICE,NONE_DEVICE,FREED_DEVICE},{-1,-1,-1}}
+        {"/dev/video0",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1}},
+        {"/dev/video1",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1}},
+        {"/dev/video2",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1}},
+        {"/dev/video3",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1}},
+        {"/dev/video4",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1}},
+        {"/dev/video5",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1}},
+        {"/dev/video50",3,{FREED_VIDEO_DEVICE,FREED_META_DEVICE,FREED_VIDEO_DEVICE},{-1,-1,-1},{-1,-1,-1}},
+        {"/dev/video51",3,{FREED_VIDEO_DEVICE,FREED_META_DEVICE,FREED_VIDEO_DEVICE},{-1,-1,-1},{-1,-1,-1}}
 };
 
-static int get_sysfs_int(const char *path)
-{
-    int val = -1;
-    int fd = open(path, O_RDONLY);
-    if (fd >= 0) {
-       char value[16];
-       read(fd, value, sizeof (value));
-       val = strtol(value, NULL, 10);
-       close(fd);
-    } else {
-       ALOGD("unable to open file %s\n", path);
-       return -1;
-    }
-    return val;
-}
-
-int CameraVirtualDevice::openVirtualDevice(int id) {
-    ALOGD("%s: id = %d E", __FUNCTION__,id);
-    int count = 0;
+struct VirtualDevice* CameraVirtualDevice::findVideoDevice(int id) {
+    int video_device_count = 0;
     /*scan the device name*/
     for (size_t i = 0; i < ARRAY_SIZE(videoDevices); i++) {
         struct VirtualDevice* pDev = &videoDevices[i];
         if (0 != access(pDev->name, F_OK | R_OK | W_OK)) {
             ALOGD("%s: device %s is invaild", __FUNCTION__,pDev->name);
-               continue;
+            continue;
         }
-        /*scan free device*/
-        ALOGD("%s: scan device %s ", __FUNCTION__,pDev->name);
-        for (int j = 0; j < pDev->streamNum; j++) {
-            if (pDev->status[j] == FREED_DEVICE) {
-                int state = get_sysfs_int(MIPI_CAMERA_STATE);
-                if (state == 1) {
-                    if (count == id) {
-                        count++;
-                        ALOGD("%s: device number is %d ",__FUNCTION__,count);
-	                continue;
-	            }
-                } else {
-                    if (count != id) {
-                        count++;
-	                ALOGD("%s: device number is %d ",__FUNCTION__,count);
-	                continue;
-	            }
-                }
-                ALOGD("%s:open device %s, device number=%d ",__FUNCTION__,pDev->name,count);
-                int fd = open(pDev->name,O_RDWR | O_NONBLOCK);
-                if (fd < 0) {
-                    ALOGE("open device %s , the %dth stream fail!",pDev->name,j);
-                    ALOGE("the reason is %s",strerror(errno));
-                    continue;
-                }
-                else {
-                    pDev->status[j] = USED_DEVICE;
-                    pDev->cameraId[j] = id;
-                    return fd;
-                }
-            } else {
-                count++;
-                ALOGI("the device %s is not free",pDev->name);
+
+        for (int stream_idx = 0; stream_idx < pDev->streamNum; stream_idx++) {
+            switch (pDev->status[stream_idx])
+            {
+                case FREED_VIDEO_DEVICE:
+                case USED_VIDEO_DEVICE:
+                    if (video_device_count != id)
+                        video_device_count++;
+                    else {
+                        ALOGD("%s: device %s index %d", __FUNCTION__,pDev->name,stream_idx);
+                        pDev->cameraId[stream_idx] = id;
+                        return pDev;
+                    }
+                    break;
+                default:
+                    break;
+           }
+        }
+    }
+    return nullptr;
+}
+
+int CameraVirtualDevice::checkDeviceStatus(struct VirtualDevice* pDev) {
+    int ret = 0; //free
+    if (pDev == nullptr) {
+        ALOGD("%s: device is null!", __FUNCTION__);
+        return -1;
+    }
+    for (int i = 0; i < pDev->streamNum; i++) {
+        if (pDev->status[i] == USED_VIDEO_DEVICE
+            && pDev->cameraId[i] != -1) {
+
+            ALOGD("%s: device is busy!", __FUNCTION__);
+            ret = 1;  //busy
+            break;
+        }
+    }
+    return ret;
+}
+
+
+int CameraVirtualDevice::OpenVideoDevice(struct VirtualDevice* pDev) {
+    ALOGD("%s: E", __FUNCTION__);
+    if (pDev == nullptr) {
+        ALOGD("%s: device is null!", __FUNCTION__);
+        return -1;
+    }
+    for (int i = 0; i < pDev->streamNum; i++) {
+
+        int fd = open(pDev->name,O_RDWR | O_NONBLOCK);
+        if (fd < 0) {
+            ALOGE("open device %s , the %dth stream fail!",pDev->name,i);
+            ALOGE("the reason is %s",strerror(errno));
+            return -1;
+        } else {
+            if (pDev->status[i] == FREED_VIDEO_DEVICE) {
+                pDev->status[i] = USED_VIDEO_DEVICE;
             }
+            pDev->fileDesc[i] = fd;
+        }
+        ALOGD("%s: stream = %d ,fd = %d, status = %d!", __FUNCTION__,i,fd,pDev->status[i]);
+    }
+    return 0;
+}
+
+/*this function not be called*/
+int CameraVirtualDevice::CloseVideoDevice(struct VirtualDevice* pDev) {
+    ALOGD("%s: E", __FUNCTION__);
+    if (pDev == nullptr) {
+        ALOGD("%s: device is null!", __FUNCTION__);
+        return -1;
+    }
+    for (int i = 0; i < pDev->streamNum; i++) {
+        close(pDev->fileDesc[i]);
+        if (pDev->status[i] == USED_VIDEO_DEVICE) {
+            pDev->status[i] = FREED_VIDEO_DEVICE ;
+        }
+        pDev->fileDesc[i] = -1;
+    }
+    return 0;
+}
+
+/*only the first time to do open operation.
+ *anytime, we only return pointed fd.
+ */
+int CameraVirtualDevice::openVirtualDevice(int id) {
+    ALOGD("%s: id = %d E", __FUNCTION__,id);
+    struct VirtualDevice* pDevice = findVideoDevice(id);
+    if (pDevice == nullptr) {
+        ALOGD("%s: device is null!", __FUNCTION__);
+        return -1;
+    }
+    ALOGD("%s: device name is %s", __FUNCTION__,pDevice->name);
+    int DeviceStatus = checkDeviceStatus(pDevice);
+    if (!DeviceStatus) {
+        ALOGD("%s: device %s is free", __FUNCTION__,pDevice->name);
+        OpenVideoDevice(pDevice);
+    }
+    for (int i = 0; i < pDevice->streamNum; i++) {
+        if (pDevice->cameraId[i] == id) {
+            ALOGD("%s: find index = %d, fd = %d, status = %d",
+                __FUNCTION__,i,pDevice->fileDesc[i],pDevice->status[i]);
+            pDevice->status[i] = USED_VIDEO_DEVICE;
+            return pDevice->fileDesc[i];
         }
     }
     return -1;
 }
-
+/*for mipi camera ,once we has opened all ports,
+ *we never closed them.
+ */
 int CameraVirtualDevice::releaseVirtualDevice(int id,int fd) {
-    ALOGD("%s: E", __FUNCTION__);
-    for (size_t i = 0; i < ARRAY_SIZE(videoDevices); i++) {
-        struct VirtualDevice* pDev = &videoDevices[i];
-        for (int j = 0; j < pDev->streamNum; j++) {
-            ALOGD("%s: id = %d", __FUNCTION__,pDev->cameraId[j]);
-            if (pDev->status[j] == USED_DEVICE && pDev->cameraId[j] == id) {
-                ALOGD("%s: name = %s", __FUNCTION__,pDev->name);
-                pDev->status[j] = FREED_DEVICE;
-                pDev->cameraId[j] = -1;
-                close(fd);
-                return 0;
+    ALOGD("%s: id =%d, fd = %d", __FUNCTION__,id,fd);
+    struct VirtualDevice* pDevice = findVideoDevice(id);
+    if (pDevice == nullptr)
+        return -1;
+
+    ALOGD("%s: device name %s", __FUNCTION__,pDevice->name);
+    /*set correspond stream to free*/
+    for (int i = 0; i < pDevice->streamNum; i++) {
+        if (pDevice->cameraId[i] == id && pDevice->fileDesc[i] == fd) {
+            switch (pDevice->status[i]) {
+                case USED_VIDEO_DEVICE:
+                    pDevice->status[i] = FREED_VIDEO_DEVICE;
+                    pDevice->cameraId[i] = -1;
+                    break;
+                default:
+                    break;
             }
         }
+        ALOGD("%s: status=%d, id =%d,fd =%d ",
+        __FUNCTION__,pDevice->status[i],pDevice->cameraId[i],pDevice->fileDesc[i]);
     }
-    return -1;
+
+    int DeviceStatus = checkDeviceStatus(pDevice);
+    if (!DeviceStatus)//free
+        CloseVideoDevice(pDevice);
+    return 0;
 }
 
 CameraVirtualDevice* CameraVirtualDevice::getInstance() {
@@ -136,7 +202,11 @@ int CameraVirtualDevice::getCameraNum() {
         struct VirtualDevice* pDev = &videoDevices[i];
         if (0 == access(pDev->name, F_OK | R_OK | W_OK)) {
             ALOGD("access %s success\n", pDev->name);
-            iCamerasNum++;
+            for (int stream_idx = 0; stream_idx < pDev->streamNum; stream_idx++)
+                if (pDev->status[stream_idx] == FREED_VIDEO_DEVICE) {
+                    ALOGD("device %s stream %d \n", pDev->name,stream_idx);
+                    iCamerasNum++;
+                }
         }
     }
     return iCamerasNum;

@@ -18,12 +18,14 @@
 #define LOG_NNDEBUG 0
 
 #define LOG_TAG "ge2d_stream"
+#define ATRACE_TAG (ATRACE_TAG_CAMERA | ATRACE_TAG_HAL | ATRACE_TAG_ALWAYS)
+#include <utils/Trace.h>
 #if defined(LOG_NNDEBUG) && LOG_NNDEBUG == 0
 #define ALOGVV ALOGV
 #else
 #define ALOGVV(...) ((void)0)
 #endif
-
+#define RATIO_SCALE
 #include <hardware/camera3.h>
 #include <DebugUtils.h>
 #include "ge2d_stream.h"
@@ -123,21 +125,22 @@ int ge2dDevice::fillStream(VideoInfo *src, uintptr_t physAddr, const android::St
     return 0;
 }
 
-int ge2dDevice::ge2d_copy(int dst_fd, int src_fd, size_t width, size_t height)
+int ge2dDevice::ge2d_copy(int dst_fd, int src_fd, size_t width, size_t height,int fmt)
 {
     ALOGVV("%s: E", __FUNCTION__);
+    ATRACE_CALL();
     int ret = 0;
     ge2d_copy_internal(dst_fd, AML_GE2D_MEM_ION,src_fd,
-                        AML_GE2D_MEM_ION, width, height);
+                        AML_GE2D_MEM_ION, width, height,fmt);
     return ret;
 }
 
-int ge2dDevice::ge2d_copy_dma(int dst_fd, int src_fd, size_t width, size_t height)
+int ge2dDevice::ge2d_copy_dma(int dst_fd, int src_fd, size_t width, size_t height,int fmt)
 {
     ALOGVV("%s: E", __FUNCTION__);
     int ret = 0;
     ret = ge2d_copy_internal(dst_fd, AML_GE2D_MEM_ION,src_fd,
-                        AML_GE2D_MEM_DMABUF, width, height);
+                                AML_GE2D_MEM_DMABUF, width, height,fmt);
     return ret;
 }
 /*function: this funtion copy image from one buffer to another buffer.
@@ -149,8 +152,9 @@ int ge2dDevice::ge2d_copy_dma(int dst_fd, int src_fd, size_t width, size_t heigh
   height: the height of image
  */
 int ge2dDevice::ge2d_copy_internal(int dst_fd, int dst_alloc_type,int src_fd,
-                                           int src_alloc_type, size_t width, size_t height)
+                                int src_alloc_type, size_t width, size_t height,int fmt)
 {
+    ATRACE_CALL();
     ALOGVV("%s: E", __FUNCTION__);
     aml_ge2d_t amlge2d;
     memset(&amlge2d,0,sizeof(aml_ge2d_t));
@@ -158,21 +162,36 @@ int ge2dDevice::ge2d_copy_internal(int dst_fd, int dst_alloc_type,int src_fd,
     memset(&(amlge2d.ge2dinfo.src_info[1]), 0, sizeof(buffer_info_t));
     memset(&(amlge2d.ge2dinfo.dst_info), 0, sizeof(buffer_info_t));
 
+    switch (fmt) {
+        case NV12:
+            amlge2d.ge2dinfo.src_info[0].format = PIXEL_FORMAT_YCbCr_420_SP_NV12;
+            amlge2d.ge2dinfo.src_info[1].format = PIXEL_FORMAT_YCbCr_420_SP_NV12;
+            amlge2d.ge2dinfo.dst_info.format = PIXEL_FORMAT_YCbCr_420_SP_NV12;
+            break;
+        case RGB:
+            amlge2d.ge2dinfo.src_info[0].format = PIXEL_FORMAT_RGB_888;
+            amlge2d.ge2dinfo.src_info[1].format = PIXEL_FORMAT_RGB_888;
+            amlge2d.ge2dinfo.dst_info.format = PIXEL_FORMAT_RGB_888;
+            break;
+        default:
+            amlge2d.ge2dinfo.src_info[0].format = PIXEL_FORMAT_YCbCr_420_SP_NV12;
+            amlge2d.ge2dinfo.src_info[1].format = PIXEL_FORMAT_YCbCr_420_SP_NV12;
+            amlge2d.ge2dinfo.dst_info.format = PIXEL_FORMAT_YCbCr_420_SP_NV12;
+            break;
+    }
+
     amlge2d.ge2dinfo.src_info[0].canvas_w = width;
     amlge2d.ge2dinfo.src_info[0].canvas_h = height;
-    amlge2d.ge2dinfo.src_info[0].format = PIXEL_FORMAT_YCbCr_420_SP_NV12;
     amlge2d.ge2dinfo.src_info[0].plane_number = 1;
     amlge2d.ge2dinfo.src_info[0].shared_fd[0] = src_fd;
 
     amlge2d.ge2dinfo.src_info[1].canvas_w = width;
     amlge2d.ge2dinfo.src_info[1].canvas_h = height;
-    amlge2d.ge2dinfo.src_info[1].format = PIXEL_FORMAT_YCbCr_420_SP_NV12;
     amlge2d.ge2dinfo.src_info[1].plane_number = 1;
     amlge2d.ge2dinfo.src_info[1].shared_fd[0] = -1;
 
     amlge2d.ge2dinfo.dst_info.canvas_w = width;
     amlge2d.ge2dinfo.dst_info.canvas_h = height;
-    amlge2d.ge2dinfo.dst_info.format = PIXEL_FORMAT_YCbCr_420_SP_NV12;
     amlge2d.ge2dinfo.dst_info.plane_number = 1;
     amlge2d.ge2dinfo.dst_info.shared_fd[0] = dst_fd;
 
@@ -226,6 +245,7 @@ int ge2dDevice::ge2d_copy_internal(int dst_fd, int dst_alloc_type,int src_fd,
 
 int ge2dDevice::ge2d_mirror(int dst_fd,size_t src_w,
                 size_t src_h,int fmt,aml_ge2d_t& amlge2d) {
+   ATRACE_CALL();
    int ret = 0;
    amlge2d.ge2dinfo.dst_info.canvas_w = src_w;
    amlge2d.ge2dinfo.dst_info.canvas_h = src_h;
@@ -308,6 +328,7 @@ int ge2dDevice::imageScaler()
 int ge2dDevice::ge2d_flip(int dst_fd,size_t src_w,
                               size_t src_h,int fmt,aml_ge2d_t& amlge2d)
 {
+    ATRACE_CALL();
     amlge2d.ge2dinfo.dst_info.canvas_w = src_w;
     amlge2d.ge2dinfo.dst_info.canvas_h = src_h;
     switch (fmt) {
@@ -469,7 +490,8 @@ int ge2dDevice::ge2d_rotation(int dst_fd,size_t src_w,
     }
 
     amlge2d.ge2dinfo.ge2d_op = AML_GE2D_STRETCHBLIT;
-    /*float ratio = (src_h*1.0)/(src_w*1.0);
+#ifdef RATIO_SCALE
+    float ratio = (src_h*1.0)/(src_w*1.0);
     switch (degree) {
         case 0:
             amlge2d.ge2dinfo.dst_info.rect.x = 0;
@@ -502,7 +524,7 @@ int ge2dDevice::ge2d_rotation(int dst_fd,size_t src_w,
         default:
             break;
     }
-    */
+#else
     amlge2d.ge2dinfo.dst_info.rect.x = 0;
     amlge2d.ge2dinfo.dst_info.rect.y = 0;
     amlge2d.ge2dinfo.dst_info.rect.w = src_w;
@@ -523,6 +545,7 @@ int ge2dDevice::ge2d_rotation(int dst_fd,size_t src_w,
         default:
             break;
     };
+#endif
     ret = aml_ge2d_process(&amlge2d.ge2dinfo);
     if (ret < 0) {
         aml_ge2d_exit(&amlge2d);
@@ -553,7 +576,7 @@ the allocated buffer is binded with the ge2d object, so if you want use this buf
 you must hold the related ge2d object.
 */
 char* ge2dDevice::ge2d_alloc(size_t width, size_t height,int*share_fd,int fmt,aml_ge2d_t& amlge2d) {
-
+    ATRACE_CALL();
     memset(&amlge2d,0x0,sizeof(aml_ge2d_t));
     memset(&(amlge2d.ge2dinfo.src_info[0]), 0, sizeof(buffer_info_t));
     memset(&(amlge2d.ge2dinfo.src_info[1]), 0, sizeof(buffer_info_t));
@@ -609,7 +632,7 @@ char* ge2dDevice::ge2d_alloc(size_t width, size_t height,int*share_fd,int fmt,am
  amlge2d: the ge2d object which is used to allocate buffer.
  */
 int ge2dDevice::ge2d_free(aml_ge2d_t& amlge2d) {
-
+    ATRACE_CALL();
     amlge2d.ge2dinfo.dst_info.memtype = GE2D_CANVAS_TYPE_INVALID;
     amlge2d.ge2dinfo.dst_info.mem_alloc_type = AML_GE2D_MEM_INVALID;
     amlge2d.ge2dinfo.dst_info.plane_number = 0;
@@ -618,6 +641,79 @@ int ge2dDevice::ge2d_free(aml_ge2d_t& amlge2d) {
     aml_ge2d_mem_free(&amlge2d);
 
     aml_ge2d_exit(&amlge2d);
+
+    return 0;
+}
+
+int ge2dDevice::doRotationAndMirror(StreamBuffer &b) {
+    ATRACE_CALL();
+    aml_ge2d_t m_Amlge2d;
+    int share_fd;
+    size_t degree;
+    bool flip = false, mirror = false;
+    char property[PROPERTY_VALUE_MAX];
+    property_get("vendor.camera.rotation", property, "0");
+    int value = atoi(property);
+    switch (value) {
+        case 0:
+        case 90:
+        case 180:
+        case 270:
+            degree = value;
+            break;
+        default:
+            degree = 0;
+            break;
+    };
+    enum {
+        HORIZANTAL = 0,
+        VERTICAL,
+    };
+    property_get("vendor.camera.mirror", property, "false");
+    if (strstr(property, "true"))
+        mirror = true;
+
+    property_get("vendor.camera.flip", property, "false");
+    if (strstr(property, "true"))
+        flip = true;
+    /*alloc buffer using ge2d device*/
+
+
+    size_t width = b.width;
+    size_t height = b.height;
+    int GE2D_FORMAT = ge2dDevice::NV12;
+    switch (b.format) {
+        case HAL_PIXEL_FORMAT_RGB_888:
+            GE2D_FORMAT = ge2dDevice::RGB;
+            break;
+        case HAL_PIXEL_FORMAT_YCbCr_420_888:
+        case HAL_PIXEL_FORMAT_YCrCb_420_SP:
+            GE2D_FORMAT = ge2dDevice::NV12;
+            break;
+        default:
+            GE2D_FORMAT = ge2dDevice::NV12;
+            break;
+    }
+    if (mirror) {
+        ge2d_alloc(width,height,&share_fd,GE2D_FORMAT,m_Amlge2d);
+        /*copy image to memory allocated by ge2d*/
+        ge2d_copy(share_fd,b.share_fd,width,height,GE2D_FORMAT);
+        /*if decode ok, then mirror the image*/
+        ge2d_mirror(b.share_fd,width,height,GE2D_FORMAT,m_Amlge2d);
+    }
+    if (flip) {
+        ge2d_alloc(width,height,&share_fd,GE2D_FORMAT,m_Amlge2d);
+        ge2d_copy(share_fd,b.share_fd,width,height,GE2D_FORMAT);
+        /*if decode ok, then mirror the image*/
+        ge2d_flip(b.share_fd,width,height,GE2D_FORMAT,m_Amlge2d);
+    }
+    if (!!degree) {
+        ge2d_alloc(width,height,&share_fd,GE2D_FORMAT,m_Amlge2d);
+        /*copy image to memory allocated by ge2d*/
+        ge2d_copy(share_fd,b.share_fd,width,height,GE2D_FORMAT);
+        /*if decode ok, then rotate the image*/
+        ge2d_rotation(b.share_fd,width,height,GE2D_FORMAT,degree,m_Amlge2d);
+    }
 
     return 0;
 }

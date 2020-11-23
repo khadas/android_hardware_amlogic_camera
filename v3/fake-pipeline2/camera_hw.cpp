@@ -81,11 +81,6 @@ int camera_open(struct VideoInfo *cam_dev)
                 DBG_LOGB( "video%d does not support streaming i/o\n",
                                 cam_dev->idx);
         }
-#ifdef ISP_ENABLE
-        if (strstr((const char *)cam_dev->cap.driver, "ARM-camera-isp")) {
-                isp_lib_enable();
-        }
-#endif
         return ret;
 }
 
@@ -576,11 +571,6 @@ void camera_close(struct VideoInfo *vinfo)
     DeviceInstance = CameraVirtualDevice::getInstance();
     DeviceInstance->releaseVirtualDevice(vinfo->idx,vinfo->fd);
     vinfo->fd = -1;
-#ifdef ISP_ENABLE
-    if (strstr((const char *)vinfo->cap.driver, "ARM-camera-isp")) {
-        isp_lib_disable();
-    }
-#endif
 }
 #ifdef __cplusplus
 //}

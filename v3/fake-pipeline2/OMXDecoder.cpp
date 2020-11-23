@@ -62,8 +62,9 @@ bool OMXDecoder::setParameters(uint32_t width, uint32_t height,
 bool OMXDecoder::initialize(const char* name) {
     LOG_LINE();
     OMX_ERRORTYPE eRet = OMX_ErrorNone;
-
-    for (int i = 0; i < 3; i++)
+    mDequeueFailNum = 0;
+    mTimeOut = false;
+    for (int i = 0; i < TempBufferNum; i++)
         mTempFrame[i] = (uint8_t*)malloc(mWidth*mHeight*3/2);
 
     if (0 == strcmp(name,"mjpeg"))
@@ -268,7 +269,7 @@ void OMXDecoder::deinitialize()
     OMX_ERRORTYPE eRet = OMX_ErrorNone;
     OMX_STATETYPE eState1, eState2;
     LOG_LINE();
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < TempBufferNum; i++)
             free(mTempFrame[i]);
     mNoFreeFlag = 1;
     if (mVDecoderHandle == NULL) {
@@ -790,7 +791,7 @@ int OMXDecoder::DequeueBuffer(int dst_fd ,uint8_t* dst_buf,
            if (dst_fd != -1) {
                 //copy data using ge2d
                 int omx_share_fd = (int)pOutPutBufferHdr->pPlatformPrivate;
-                ge2dDevice::ge2d_copy(dst_fd,omx_share_fd,dst_w,dst_h);
+                ge2dDevice::ge2d_copy(dst_fd,omx_share_fd,dst_w,dst_h,ge2dDevice::NV12);
             }
             else
                 memcpy(dst_buf, pOutPutBufferHdr->pBuffer, pOutPutBufferHdr->nFilledLen);
@@ -813,14 +814,15 @@ int OMXDecoder::Decode(uint8_t*src, size_t src_size,
         int ret = DequeueBuffer(dst_fd,dst_buf,
                                 dst_w,dst_h);
         if (!ret) {
-            mDequeueFailNum ++;
-            ALOGD("%s:FailNumber=%d",__FUNCTION__,mDequeueFailNum);
+            if (mDequeueFailNum ++ > MaxPollingCount)
+                mTimeOut = true;
+            ALOGD("%s:Polling number=%d",__FUNCTION__,mDequeueFailNum);
         }
 
         if (ret && mDequeueFailNum >= 1) {
-            int r = 0;
-            int i = 0;
-            for (i = 0 ; i < 3; i++) {
+            bool Iscached = false;
+            int buffer_index = 0;
+            for (int i = 0 ; i < TempBufferNum; i++) {
                 /*becase mTempFrame is not physical consist memory,
                  *if decode image to this buffer, we can't use ge2d to rotate
                  *the image.
@@ -829,17 +831,18 @@ int OMXDecoder::Decode(uint8_t*src, size_t src_size,
                 if (value) {
                     ALOGD("%s:read cached data.",__FUNCTION__);
                     mDequeueFailNum -= 1;
-                    r = 1;
+                    Iscached = true;
+                    buffer_index = i;
                     continue;
                 }
                 else
                     break;
             }
-            if (r && ((i-1) >= 0)) {
-                ALOGD("%s:i=%d",__FUNCTION__,i);
-                memcpy(dst_buf,mTempFrame[i-1],mWidth*mHeight*3/2);
-                ret = r;
+
+            if (Iscached) {
+                ALOGD("%s:buffer_index=%d",__FUNCTION__,buffer_index);
+                memcpy(dst_buf,mTempFrame[buffer_index],mWidth*mHeight*3/2);
             }
-    }
-    return ret;
+        }
+        return ret;
 }
