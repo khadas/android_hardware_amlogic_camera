@@ -40,6 +40,8 @@
 #include <cmath>
 #include <gralloc_priv.h>
 #include <binder/IPCThreadState.h>
+#include <amlogic/am_gralloc_ext.h>
+
 
 #if defined(LOG_NNDEBUG) && LOG_NNDEBUG == 0
 #define ALOGVV ALOGV
@@ -191,7 +193,6 @@ EmulatedFakeCamera3::EmulatedFakeCamera3(int cameraId, struct hw_module_t* modul
     //mFullMode = facingBack;
     mCameraStatus = CAMERA_INIT;
     mSupportCap = 0;
-    mSupportRotate = 0;
     mFullMode = 0;
     mFlushTag = false;
     mPlugged = false;
@@ -275,11 +276,6 @@ status_t EmulatedFakeCamera3::connectCamera(hw_device_t** device) {
     res = mSensor->startUp(mCameraID);
     DBG_LOGB("mSensor startUp, mCameraID=%d\n", mCameraID);
     if (res != NO_ERROR) return res;
-
-    mSupportCap = mSensor->IoctlStateProbe();
-    if (mSupportCap & IOCTL_MASK_ROTATE) {
-        mSupportRotate = true;
-    }
 
     mReadoutThread = new ReadoutThread(this);
     mJpegCompressor = new JpegCompressor();
@@ -1301,34 +1297,24 @@ status_t EmulatedFakeCamera3::processCaptureRequest(
       // structures for them, and lock them for writing.
       for (size_t i = 0; i < request->num_output_buffers; i++) {
               const camera3_stream_buffer &srcBuf = request->output_buffers[i];
-              const private_handle_t *privBuffer =
-                      (const private_handle_t*)(*srcBuf.buffer);
               StreamBuffer destBuf;
               destBuf.streamId = kGenericStreamId;
               destBuf.width    = srcBuf.stream->width;
               destBuf.height   = srcBuf.stream->height;
-              destBuf.format   = privBuffer->format; // Use real private format
-              destBuf.stride   = privBuffer->stride; //srcBuf.stream->width; // TODO: query from gralloc
+              destBuf.format   = am_gralloc_get_format((native_handle_t*)(*srcBuf.buffer));// Use real private format
+              destBuf.stride   = am_gralloc_get_stride_in_pixel((native_handle_t*)(*srcBuf.buffer));//srcBuf.stream->width;
               destBuf.buffer   = srcBuf.buffer;
-              destBuf.share_fd = privBuffer->share_fd;
+              destBuf.share_fd = am_gralloc_get_buffer_fd((native_handle_t*)(*srcBuf.buffer));
 
               if (destBuf.format == HAL_PIXEL_FORMAT_BLOB) {
                      needJpeg = true;
                      memset(&info,0,sizeof(struct ExifInfo));
                      info.orientation = settings.find(ANDROID_JPEG_ORIENTATION).data.i32[0];
                      jpegpixelfmt = mSensor->getOutputFormat();
-                     if (!mSupportRotate) {
-                            info.mainwidth = srcBuf.stream->width;
-                            info.mainheight = srcBuf.stream->height;
-                     } else {
-                            if ((info.orientation == 90)  || (info.orientation == 270)) {
-                                info.mainwidth = srcBuf.stream->height;
-                                info.mainheight = srcBuf.stream->width;
-                            } else {
-                                info.mainwidth = srcBuf.stream->width;
-                                info.mainheight = srcBuf.stream->height;
-                            }
-                     }
+
+                     info.mainwidth = srcBuf.stream->width;
+                     info.mainheight = srcBuf.stream->height;
+
                      if ((jpegpixelfmt == V4L2_PIX_FMT_MJPEG) || (jpegpixelfmt == V4L2_PIX_FMT_YUYV)) {
                             mSensor->setOutputFormat(info.mainwidth,info.mainheight,jpegpixelfmt,1);
                      } else {
@@ -1347,7 +1333,8 @@ status_t EmulatedFakeCamera3::processCaptureRequest(
                      // Lock buffer for writing
                      const Rect rect(destBuf.width, destBuf.height);
                      if (srcBuf.stream->format == HAL_PIXEL_FORMAT_YCbCr_420_888) {
-                           if (privBuffer->format == HAL_PIXEL_FORMAT_YCbCr_420_888/*HAL_PIXEL_FORMAT_YCrCb_420_SP*/) {
+                         if (am_gralloc_get_format((native_handle_t*)(*srcBuf.buffer)) ==
+                             HAL_PIXEL_FORMAT_YCbCr_420_888/*HAL_PIXEL_FORMAT_YCrCb_420_SP*/) {
                                   android_ycbcr ycbcr = android_ycbcr();
                                   res = GraphicBufferMapper::get().lockYCbCr(
                                       *(destBuf.buffer),
@@ -1359,7 +1346,7 @@ status_t EmulatedFakeCamera3::processCaptureRequest(
                                   destBuf.img = static_cast<uint8_t*>(ycbcr.y);
                            } else {
                                   ALOGE("Unexpected private format for flexible YUV: 0x%x",
-                                             privBuffer->format);
+                                             am_gralloc_get_format((native_handle_t*)(*srcBuf.buffer)));
                                   res = INVALID_OPERATION;
                            }
                      } else {
@@ -1381,8 +1368,10 @@ status_t EmulatedFakeCamera3::processCaptureRequest(
                             GraphicBufferMapper::get().unlock(
                                      *(request->output_buffers[i].buffer));
                      }
-                     ALOGE("line:%d, format for this usage: %d x %d, usage %x, format=%x, returned\n",
-                              __LINE__, destBuf.width, destBuf.height, privBuffer->usage, privBuffer->format);
+                     ALOGE("line:%d, format for this usage: %d x %d, format=%x, returned\n",
+                              __LINE__, destBuf.width, destBuf.height,
+                              am_gralloc_get_format((native_handle_t*)(*srcBuf.buffer)));
+
                      return NO_INIT;
               }
               sensorBuffers->push_back(destBuf);
@@ -1390,18 +1379,10 @@ status_t EmulatedFakeCamera3::processCaptureRequest(
       }
 
       if (needJpeg) {
-              if (!mSupportRotate) {
-                   info.thumbwidth = settings.find(ANDROID_JPEG_THUMBNAIL_SIZE).data.i32[0];
-                   info.thumbheight = settings.find(ANDROID_JPEG_THUMBNAIL_SIZE).data.i32[1];
-              } else {
-                   if ((info.orientation == 90) || (info.orientation == 270)) {
-                          info.thumbwidth = settings.find(ANDROID_JPEG_THUMBNAIL_SIZE).data.i32[1];
-                          info.thumbheight = settings.find(ANDROID_JPEG_THUMBNAIL_SIZE).data.i32[0];
-                   } else {
-                          info.thumbwidth = settings.find(ANDROID_JPEG_THUMBNAIL_SIZE).data.i32[0];
-                          info.thumbheight = settings.find(ANDROID_JPEG_THUMBNAIL_SIZE).data.i32[1];
-                   }
-              }
+
+              info.thumbwidth = settings.find(ANDROID_JPEG_THUMBNAIL_SIZE).data.i32[0];
+              info.thumbheight = settings.find(ANDROID_JPEG_THUMBNAIL_SIZE).data.i32[1];
+
               if (settings.exists(ANDROID_JPEG_GPS_COORDINATES)) {
                    info.latitude = settings.find(ANDROID_JPEG_GPS_COORDINATES).data.d[0];
                    info.longitude = settings.find(ANDROID_JPEG_GPS_COORDINATES).data.d[1];
@@ -1707,7 +1688,6 @@ status_t EmulatedFakeCamera3::constructStaticInfo() {
     int count, duration_count, availablejpegsize;
     uint8_t maxCount = 10;
     char property[PROPERTY_VALUE_MAX];
-    unsigned int supportrotate;
     availablejpegsize = ARRAY_SIZE(mAvailableJpegSize);
     memset(mAvailableJpegSize,0,(sizeof(uint32_t))*availablejpegsize);
     createSensor();
@@ -1716,40 +1696,6 @@ status_t EmulatedFakeCamera3::constructStaticInfo() {
     else
         ALOGE("sensor object can not is NULL");
 
-    if ( mSensorType == SENSOR_USB) {
-        char property[PROPERTY_VALUE_MAX];
-        property_get("ro.media.camera_usb.faceback", property, "false");
-        if (strstr(property, "true"))
-            mFacingBack = 1;
-        else
-            mFacingBack = 0;
-        ALOGI("Setting usb camera cameraID:%d to back camera:%s\n",
-                     mCameraID, property);
-    } else {
-        if (mSensor->mSensorFace == SENSOR_FACE_FRONT) {
-            mFacingBack = 0;
-        } else if (mSensor->mSensorFace == SENSOR_FACE_BACK) {
-            mFacingBack = 1;
-        } else if (mSensor->mSensorFace == SENSOR_FACE_NONE) {
-            if (gEmulatedCameraFactory.getEmulatedCameraNum() == 1) {
-                mFacingBack = 1;
-            } else if ( mCameraID == 0) {
-                mFacingBack = 1;
-            } else {
-                mFacingBack = 0;
-            }
-        }
-
-        ALOGI("Setting on board camera cameraID:%d to back camera:%d[0 false, 1 true]\n",
-                     mCameraID, mFacingBack);
-    }
-
-    mSupportCap = mSensor->IoctlStateProbe();
-    if (mSupportCap & IOCTL_MASK_ROTATE) {
-        supportrotate = true;
-    } else {
-        supportrotate = false;
-    }
     // android.lens
 
     // 5 cm min focus distance for back camera, infinity (fixed focus) for front
@@ -1782,13 +1728,43 @@ status_t EmulatedFakeCamera3::constructStaticInfo() {
     info.update(ANDROID_LENS_INFO_SHADING_MAP_SIZE, lensShadingMapSize,
             sizeof(lensShadingMapSize)/sizeof(int32_t));
 
-    /*lens facing related camera feature*/
-    /*camera feature setting in /device/amlogic/xxx/xxx.mk files*/
-    uint8_t lensFacing = mFacingBack ?
-            ANDROID_LENS_FACING_BACK : ANDROID_LENS_FACING_FRONT;
+   /*lens facing related camera feature*/
+   /*camera feature setting in /device/amlogic/xxx/xxx.mk files*/
    /*in cdd , usb camera is external facing*/
-   if ( mSensorType == SENSOR_USB )
+   uint8_t lensFacing = ANDROID_LENS_FACING_BACK;
+   switch (mSensorType) {
+       case SENSOR_USB :
+        property_get("ro.vendor.camera_usb.faceback", property, NULL);
+        if (strstr(property, "true")) {
+          lensFacing =  ANDROID_LENS_FACING_BACK;
+          mFacingBack = 1;
+        } else if (strstr(property, "false")) {
+          lensFacing = ANDROID_LENS_FACING_FRONT;
+          mFacingBack = 0;
+        } else {
+          // Default facing external using for cts
           lensFacing = ANDROID_LENS_FACING_EXTERNAL;
+          mFacingBack = 0;
+        }
+        break;
+     case SENSOR_MIPI:
+        property_get("ro.vendor.camera_mipi.faceback", property, NULL);
+        if (strstr(property, "true")) {
+            mFacingBack = 1;
+            lensFacing =  ANDROID_LENS_FACING_BACK;
+        } else if (strstr(property, "false")) {
+            mFacingBack = 0;
+            lensFacing =  ANDROID_LENS_FACING_FRONT;
+        } else {
+            // Default facing front
+            mFacingBack = 0;
+            lensFacing =  ANDROID_LENS_FACING_FRONT;
+        }
+        break;
+     default:
+         ALOGE("not support this sensor type!");
+         break;
+       }
 
     info.update(ANDROID_LENS_FACING, &lensFacing, 1);
 
@@ -1812,7 +1788,6 @@ status_t EmulatedFakeCamera3::constructStaticInfo() {
     info.update(ANDROID_LENS_INFO_FOCUS_DISTANCE_CALIBRATION,&lensCalibration,1);
 
     // android.sensor
-
     static const int32_t testAvailablePattern = ANDROID_SENSOR_TEST_PATTERN_MODE_OFF;
     info.update(ANDROID_SENSOR_AVAILABLE_TEST_PATTERN_MODES, &testAvailablePattern, 1);
     static const int32_t testPattern = ANDROID_SENSOR_TEST_PATTERN_MODE_OFF;

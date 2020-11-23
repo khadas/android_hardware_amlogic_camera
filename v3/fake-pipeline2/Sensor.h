@@ -171,7 +171,7 @@ typedef struct usb_frmsize_discrete {
     uint32_t height;
 } usb_frmsize_discrete_t;
 
-#define IOCTL_MASK_ROTATE	(1<<0)
+#define IOCTL_MASK_ROTATE    (1<<0)
 
 class Sensor: public Thread, public virtual RefBase {
   public:
@@ -202,7 +202,6 @@ class Sensor: public Thread, public virtual RefBase {
     virtual int getStreamConfigurationDurations(uint32_t picSizes[], int64_t duration[], int size, bool flag);
     virtual bool isStreaming();
     virtual bool isNeedRestart(uint32_t width, uint32_t height, uint32_t pixelformat);
-    virtual status_t IoctlStateProbe(void);
     void dump(int fd);
     /*
      * Access to scene
@@ -325,6 +324,7 @@ class Sensor: public Thread, public virtual RefBase {
     uint32_t  mGainFactor;
     Buffers  *mNextBuffers;
     uint8_t  *mKernelBuffer;
+    int mTempFD;
     uintptr_t mKernelPhysAddr;
     uint32_t  mFrameNumber;
     int  mRotateValue;
@@ -358,7 +358,6 @@ class Sensor: public Thread, public virtual RefBase {
 
     enum sensor_type_e mSensorType;
     unsigned int mIoctlSupport;
-    unsigned int msupportrotate;
     uint32_t mTimeOutCount;
     bool mWait;
     uint32_t mPre_width;
@@ -378,8 +377,6 @@ class Sensor: public Thread, public virtual RefBase {
     Buffers *mNextCapturedBuffers;
 
     Scene mScene;
-
-    virtual int doRotationAndMirror(){return 0;};
     virtual int captureNewImage();
     void captureRaw(uint8_t *img, uint32_t gain, uint32_t stride);
     void captureRGBA(uint8_t *img, uint32_t gain, uint32_t stride);

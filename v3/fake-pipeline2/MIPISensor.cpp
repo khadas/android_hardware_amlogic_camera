@@ -18,7 +18,8 @@
 #include "../EmulatedFakeCamera3.h"
 #include "Sensor.h"
 #include "MIPISensor.h"
-#include "ispaaalib.h"
+#include "CaptureUseMemcpy.h"
+#include "CaptureUseGe2d.h"
 
 #if ANDROID_PLATFORM_SDK_VERSION >= 24
 #if ANDROID_PLATFORM_SDK_VERSION >= 29
@@ -63,23 +64,56 @@ extern bool IsUsbAvailablePictureSize(const usb_frmsize_discrete_t AvailablePict
 MIPISensor::MIPISensor() {
     mCameraVirtualDevice = nullptr;
     mVinfo = NULL;
+    mCapture = NULL;
+    mISP = isp3a::get_instance();
+
+#ifdef GE2D_ENABLE
+    mION = IONInterface::get_instance();
+#endif
+
+#ifdef GDC_ENABLE
+    mIsGdcInit = false;
+#endif
     ALOGD("create MIPISensor");
 }
 
 MIPISensor::~MIPISensor() {
     ALOGD("delete MIPISensor");
-     if (mVinfo) {
+    if (mCapture) {
+        delete(mCapture);
+        mCapture = NULL;
+    }
+    if (mVinfo) {
         delete(mVinfo);
         mVinfo = NULL;
     }
-    if (mCameraUtil) {
-        delete mCameraUtil;
-        mCameraUtil = NULL;
+
+#ifdef GDC_ENABLE
+    if (mIGdc) {
+        if (mIsGdcInit) {
+            mIGdc->gdc_exit();
+            mIsGdcInit = false;
+        }
+        delete mIGdc;
+        mIGdc = NULL;
     }
+#endif
+#ifdef GE2D_ENABLE
+    if (mION) {
+        mION->put_instance();
+    }
+#endif
+
 }
 
 status_t MIPISensor::streamOff(void) {
     ALOGV("%s: E", __FUNCTION__);
+#ifdef GDC_ENABLE
+    if (mIGdc && mIsGdcInit) {
+        mIGdc->gdc_exit();
+        mIsGdcInit = false;
+    }
+#endif
     return mVinfo->stop_capturing();
 }
 
@@ -87,7 +121,7 @@ int MIPISensor::SensorInit(int idx) {
     ALOGV("%s: E", __FUNCTION__);
     int ret = 0;
     if (mVinfo == NULL)
-        mVinfo =  new CVideoInfo();
+        mVinfo =  new MIPIVideoInfo();
     ret = camera_open(idx);
     if (ret < 0) {
         ALOGE("Unable to open sensor %d, errno=%d\n", mVinfo->idx, ret);
@@ -95,13 +129,16 @@ int MIPISensor::SensorInit(int idx) {
     }
     InitVideoInfo(idx);
     mVinfo->camera_init();
-    if (strstr((const char *)mVinfo->cap.card, "front"))
-        mSensorFace = SENSOR_FACE_FRONT;
-    else if (strstr((const char *)mVinfo->cap.card, "back"))
-        mSensorFace = SENSOR_FACE_BACK;
-    else
-        mSensorFace = SENSOR_FACE_NONE;
-
+    if (!mCapture) {
+#ifdef GE2D_ENABLE
+        mCapture = new CaptureUseGe2d(mVinfo);
+#else
+        mCapture = new CaptureUseMemcpy(mVinfo);
+#endif
+    }
+    //----set buffer number using to get image from video device
+    setIOBufferNum();
+    //----set camera type
     mSensorType = SENSOR_MIPI;
     return ret;
 }
@@ -116,28 +153,25 @@ status_t MIPISensor::startUp(int idx) {
        ALOGE("Unable to start up sensor capture thread: %d", res);
     }
     res = SensorInit(idx);
-    if (!mCameraUtil)
-        mCameraUtil = new CameraUtil();
+#ifdef GDC_ENABLE
+    if (!mIGdc)
+        mIGdc = new gdcUseFd();
+        //mIGdc = new gdcUseMemcpy();
+#endif
     return res;
 }
 
 int MIPISensor::camera_open(int idx) {
     int ret = 0;
-    char dev_name[128];
-    //sprintf(dev_name, "/dev/video%d",idx);
     if (mCameraVirtualDevice == nullptr)
         mCameraVirtualDevice = CameraVirtualDevice::getInstance();
     mMIPIDevicefd[0] = mCameraVirtualDevice->openVirtualDevice(idx);
     if (mMIPIDevicefd[0] < 0) {
-        ALOGE("open %s failed, %s\n", dev_name, strerror(errno));
         ret = -ENOTTY;
     }
-    ALOGD("open %s ok !", dev_name);
     mVinfo->fd = mMIPIDevicefd[0];
-#ifdef ISP_ENABLE
-    ALOGD( "enable isp lib");
-    isp_lib_enable();
-#endif
+    mISP->open_isp3a_library();
+    mISP->print_status();
     return ret;
 }
 
@@ -150,10 +184,8 @@ void MIPISensor::camera_close(void) {
 
     mCameraVirtualDevice->releaseVirtualDevice(mVinfo->idx,mMIPIDevicefd[0]);
     mMIPIDevicefd[0] = -1;
-#ifdef ISP_ENABLE
-    ALOGD( "disable isp lib");
-    isp_lib_disable();
-#endif
+    mISP->close_isp3a_library();
+    mISP->print_status();
 }
 
 void MIPISensor::InitVideoInfo(int idx) {
@@ -180,6 +212,16 @@ status_t MIPISensor::shutDown() {
         delete [] mImage_buffer;
         mImage_buffer = NULL;
     }
+#ifdef GDC_ENABLE
+    if (mIGdc) {
+        if (mIsGdcInit) {
+            mIGdc->gdc_exit();
+            mIsGdcInit = false;
+        }
+        delete mIGdc;
+        mIGdc = NULL;
+    }
+#endif
     mSensorWorkFlag = false;
     ALOGD("%s: Exit", __FUNCTION__);
     return res;
@@ -204,77 +246,33 @@ uint32_t MIPISensor::getStreamUsage(int stream_type){
     return usage;
 }
 
-void MIPISensor::captureRGB(uint8_t *img, uint32_t gain, uint32_t stride){
-    uint8_t *src = NULL;
-    int ret = 0, rotate = 0;
-    uint32_t width = 0, height = 0;
-    int dqTryNum = 3;
-
-    rotate = getPictureRotate();
-    width = mVinfo->picture.format.fmt.pix.width;
-    height = mVinfo->picture.format.fmt.pix.height;
+void MIPISensor::captureRGB(uint8_t *img, uint32_t gain, uint32_t stride) {
+    int ret = 0;
+    struct data_in in;
+    in.src = mKernelBuffer;
+    in.share_fd = mTempFD;
 
     mVinfo->stop_capturing();
-    ret = mVinfo->start_picture(rotate);
-    if (ret < 0)
-    {
+    ret = mVinfo->start_picture(0);
+    if (ret < 0) {
         ALOGD("start picture failed!");
         return;
     }
     while (1)
     {
-        if (mFlushFlag) {
-            break;
-        }
-
         if (mExitSensorThread) {
             break;
         }
 
-        src = (uint8_t *)mVinfo->get_picture();
-        if (NULL == src) {
-            usleep(10000);
+        int ret = mCapture->captureRGBframe(img,&in);
+        if (ret == -1)
             continue;
-        }
-        if ((NULL != src) && ((mVinfo->picture.format.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV) ||
-            (mVinfo->picture.format.fmt.pix.pixelformat == V4L2_PIX_FMT_RGB24))) {
-
-            while (dqTryNum > 0) {
-                if (NULL != src) {
-                   mVinfo->putback_picture_frame();
-                }
-                usleep(10000);
-                dqTryNum --;
-                src = (uint8_t *)mVinfo->get_picture();
-                while (src == NULL) {
-                    usleep(10000);
-                    src = (uint8_t *)mVinfo->get_picture();
-                }
-            }
+        mVinfo->putback_picture_frame();
+        mSensorWorkFlag = true;
+        if (mFlushFlag) {
+            break;
         }
 
-        if (NULL != src) {
-            mSensorWorkFlag = true;
-            if (mVinfo->picture.format.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV) {
-                if (mVinfo->picture.buf.length == mVinfo->picture.buf.bytesused) {
-                    mCameraUtil->yuyv422_to_rgb24(src,img,width,height);
-                    break;
-                } else {
-                    mVinfo->putback_picture_frame();
-                    usleep(5000);
-                }
-            } else if (mVinfo->picture.format.fmt.pix.pixelformat == V4L2_PIX_FMT_RGB24) {
-                if (mVinfo->picture.buf.length == width * height * 3) {
-                    memcpy(img, src, mVinfo->picture.buf.length);
-                } else {
-                    mCameraUtil->rgb24_memcpy(img, src, width, height);
-                }
-                break;
-            } else if (mVinfo->picture.format.fmt.pix.pixelformat == V4L2_PIX_FMT_NV21) {
-                memcpy(img, src, mVinfo->picture.buf.length);
-                break;
-            }
-        }
     }
     ALOGVV("get picture success !");
     mVinfo->stop_picture();
@@ -283,151 +281,73 @@ void MIPISensor::captureRGB(uint8_t *img, uint32_t gain, uint32_t stride){
 
 void MIPISensor::captureNV21(StreamBuffer b, uint32_t gain){
     ATRACE_CALL();
-    uint8_t *src;
     //ALOGVV("MIPI NV21 sensor image captured");
-
-    if (mKernelBuffer) {
-        src = mKernelBuffer;
-        if (mVinfo->preview.format.fmt.pix.pixelformat == V4L2_PIX_FMT_NV21) {
-            uint32_t width = mVinfo->preview.format.fmt.pix.width;
-            uint32_t height = mVinfo->preview.format.fmt.pix.height;
-            if ((width == b.width) && (height == b.height)) {
-                memcpy(b.img, src, b.stride * b.height * 3/2);
-            } else {
-                mCameraUtil->ReSizeNV21(src, b.img, b.width, b.height, b.stride,width,height);
-            }
-        } else if (mVinfo->preview.format.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV) {
-            uint32_t width = mVinfo->preview.format.fmt.pix.width;
-            uint32_t height = mVinfo->preview.format.fmt.pix.height;
-
-            if ((width == b.width) && (height == b.height)) {
-                memcpy(b.img, src, b.stride * b.height * 3/2);
-            } else {
-                mCameraUtil->ReSizeNV21(src, b.img, b.width, b.height, b.stride,width,height);
-            }
-        } else {
-            ALOGE("Unable known sensor format: %d", mVinfo->preview.format.fmt.pix.pixelformat);
-        }
-        return ;
-    }
+    struct data_in in;
+    in.src = mKernelBuffer;
+    in.share_fd = mTempFD;
+    ALOGVV("%s:mTempFD = %d",__FUNCTION__,mTempFD);
     while (1) {
-        if (mFlushFlag) {
-            break;
-        }
-
         if (mExitSensorThread) {
             break;
         }
-
-        src = (uint8_t *)mVinfo->get_frame();
-        if (NULL == src) {
-            ALOGVV("get frame NULL, sleep 5ms");
-            usleep(5000);
+        //----get one frame
+        int ret = mCapture->captureNV21frame(b,&in);
+        if (ret == -1)
             continue;
-        }
-        mTimeOutCount = 0;
-        if (mVinfo->preview.format.fmt.pix.pixelformat == V4L2_PIX_FMT_NV21) {
-            if (mVinfo->preview.buf.length == b.width * b.height * 3/2) {
-                memcpy(b.img, src, mVinfo->preview.buf.length);
-            } else {
-                mCameraUtil->nv21_memcpy_align32 (b.img, src, b.width, b.height);
-            }
-            mKernelBuffer = b.img;
-        } else if (mVinfo->preview.format.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV) {
-            uint32_t width = mVinfo->preview.format.fmt.pix.width;
-            uint32_t height = mVinfo->preview.format.fmt.pix.height;
-            memset(mImage_buffer, 0 , width * height * 3/2);
-            mCameraUtil->YUYVToNV21(src, mImage_buffer, width, height);
-            if ((width == b.width) && (height == b.height)) {
-                memcpy(b.img, mImage_buffer, b.width * b.height * 3/2);
-                mKernelBuffer = b.img;
-            } else {
-                if ((b.height % 2) != 0) {
-                    DBG_LOGB("%d , b.height = %d", __LINE__, b.height);
-                    b.height = b.height - 1;
-                }
-                mCameraUtil->ReSizeNV21(mImage_buffer, b.img, b.width, b.height, b.stride,width,height);
-                mKernelBuffer = mImage_buffer;
-            }
-        }
+#ifdef GE2D_ENABLE
+        //----do rotation
+        ge2dDevice::doRotationAndMirror(b);
+#endif
+
+#ifdef GDC_ENABLE
+        //----do fisheye corrected
+        struct param p;
+        p.img = b.img;
+        //----get kernel dmabuf fd
+        p.input_fd = in.dmabuf_fd;
+        //----set output buffer fd
+        p.output_fd = b.share_fd;
+        mIGdc->gdc_do_fisheye_correction(&p);
+#endif
+        mKernelBuffer = b.img;
+        mTempFD = b.share_fd;
         mSensorWorkFlag = true;
         mVinfo->putback_frame();
+        if (mFlushFlag) {
+            break;
+        }
         break;
     }
 }
 
-void MIPISensor::captureYV12(StreamBuffer b, uint32_t gain){
-    uint8_t *src;
-    if (mKernelBuffer) {
-        src = mKernelBuffer;
-        if (mVinfo->preview.format.fmt.pix.pixelformat == V4L2_PIX_FMT_YVU420) {
-            int width = mVinfo->preview.format.fmt.pix.width;
-            int height = mVinfo->preview.format.fmt.pix.height;
-            mCameraUtil->ScaleYV12(src,width,height,b.img,b.width,b.height);
-        } else if (mVinfo->preview.format.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV) {
-            int width = mVinfo->preview.format.fmt.pix.width;
-            int height = mVinfo->preview.format.fmt.pix.height;
-            mCameraUtil->YUYVScaleYV12(src,width,height,b.img,b.width,b.height);
-        } else {
-            ALOGE("Unable known sensor format: %d",
-                mVinfo->preview.format.fmt.pix.pixelformat);
-        }
-        return ;
-    }
+void MIPISensor::captureYV12(StreamBuffer b, uint32_t gain) {
+    struct data_in in;
+    in.src = mKernelBuffer;
+    in.share_fd = mTempFD;
+
     while (1) {
-        if (mFlushFlag) {
-            break;
-        }
+
         if (mExitSensorThread) {
             break;
         }
-        src = (uint8_t *)mVinfo->get_frame();
-
-        if (NULL == src) {
-            ALOGVV("get frame NULL, sleep 5ms");
-            usleep(5000);
-            mTimeOutCount++;
-            if (mTimeOutCount > 600) {
-                force_reset_sensor();
-            }
+        int ret = mCapture->captureYV12frame(b,&in);
+        if (ret == -1)
             continue;
-        }
-        mTimeOutCount = 0;
-        if (mVinfo->preview.format.fmt.pix.pixelformat == V4L2_PIX_FMT_YVU420) {
-            if (mVinfo->preview.buf.length == b.width * b.height * 3/2) {
-                memcpy(b.img, src, mVinfo->preview.buf.length);
-            } else {
-                mCameraUtil->yv12_memcpy_align32 (b.img, src, b.width, b.height);
-            }
-            mKernelBuffer = b.img;
-        } else if (mVinfo->preview.format.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV) {
-            int width = mVinfo->preview.format.fmt.pix.width;
-            int height = mVinfo->preview.format.fmt.pix.height;
-            mCameraUtil->YUYVToYV12(src, b.img, width, height);
-            mKernelBuffer = b.img;
-        } else {
-            ALOGE("Unable known sensor format: %d",
-                mVinfo->preview.format.fmt.pix.pixelformat);
-        }
+        mKernelBuffer = b.img;
+        mTempFD = b.share_fd;
         mSensorWorkFlag = true;
         mVinfo->putback_frame();
+        if (mFlushFlag) {
+            break;
+        }
         break;
     }
     ALOGVV("YV12 sensor image captured");
 }
-void MIPISensor::captureYUYV(uint8_t *img, uint32_t gain, uint32_t stride){
-    uint8_t *src;
-    if (mKernelBuffer) {
-        src = mKernelBuffer;
-        if (mVinfo->preview.format.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV) {
-            //TODO YUYV scale
-            //memcpy(img, src, vinfo->preview.buf.length);
-
-        } else
-            ALOGE("Unable known sensor format: %d", mVinfo->preview.format.fmt.pix.pixelformat);
-
-        return ;
-    }
+void MIPISensor::captureYUYV(uint8_t *img, uint32_t gain, uint32_t stride) {
+    struct data_in in;
+    in.src = mKernelBuffer;
+    in.share_fd = mTempFD;
 
     while (1) {
         if (mFlushFlag) {
@@ -436,28 +356,28 @@ void MIPISensor::captureYUYV(uint8_t *img, uint32_t gain, uint32_t stride){
         if (mExitSensorThread) {
             break;
         }
-        src = (uint8_t *)mVinfo->get_frame();
-        if (NULL == src) {
-            ALOGVV("get frame NULL, sleep 5ms");
-            usleep(5000);
-            mTimeOutCount++;
-            if (mTimeOutCount > 600) {
-                force_reset_sensor();
-            }
+        int ret = mCapture->captureYUYVframe(img,&in);
+        if (ret == -1)
             continue;
-        }
-        mTimeOutCount = 0;
-        if (mVinfo->preview.format.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV) {
-            memcpy(img, src, mVinfo->preview.buf.length);
-            mKernelBuffer = src;
-        } else {
-            ALOGE("Unable known sensor format: %d", mVinfo->preview.format.fmt.pix.pixelformat);
-        }
+        mKernelBuffer = img;
+        mTempFD = -1;
         mSensorWorkFlag = true;
         mVinfo->putback_frame();
         break;
     }
     ALOGVV("YUYV sensor image captured");
+}
+void MIPISensor::setIOBufferNum()
+{
+    char buffer_number[128];
+    int tmp = 4;
+    if (property_get("ro.vendor.mipicamera.iobuffer", buffer_number, NULL) > 0) {
+        sscanf(buffer_number, "%d", &tmp);
+        ALOGD(" get buffer number is %d from property \n",tmp);
+    }
+
+    ALOGD("defalut buffer number is %d\n",tmp);
+    mVinfo->set_buffer_numbers(tmp);
 }
 
 status_t MIPISensor::getOutputFormat(void) {
@@ -480,11 +400,13 @@ status_t MIPISensor::setOutputFormat(int width, int height, int pixelformat, boo
     gettimeofday(&mTimeStart, NULL);
 
     if (isjpeg) {
+        //----set snap shot pixel format
         mVinfo->picture.format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         mVinfo->picture.format.fmt.pix.width = width;
         mVinfo->picture.format.fmt.pix.height = height;
         mVinfo->picture.format.fmt.pix.pixelformat = pixelformat;
     } else {
+        //----set preview pixel format
         mVinfo->preview.format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         mVinfo->preview.format.fmt.pix.width = width;
         mVinfo->preview.format.fmt.pix.height = height;
@@ -494,7 +416,14 @@ status_t MIPISensor::setOutputFormat(int width, int height, int pixelformat, boo
             ALOGE("set buffer failed\n");
             return res;
             }
+#ifdef GDC_ENABLE
+        if (mIGdc && !mIsGdcInit) {
+            mIGdc->gdc_init(width,height,NV12,1);
+            mIsGdcInit = true;
+        }
+#endif
     }
+    //----alloc memory for temperary buffer
     if (NULL == mImage_buffer) {
         mPre_width = mVinfo->preview.format.fmt.pix.width;
         mPre_height = mVinfo->preview.format.fmt.pix.height;
@@ -505,6 +434,7 @@ status_t MIPISensor::setOutputFormat(int width, int height, int pixelformat, boo
             return -1;
             }
         }
+    //-----free old buffer and alloc new buffer
     if ((mPre_width != mVinfo->preview.format.fmt.pix.width)
         && (mPre_height != mVinfo->preview.format.fmt.pix.height)) {
             if (mImage_buffer) {
@@ -552,15 +482,6 @@ int MIPISensor::halFormatToSensorFormat(uint32_t pixelfmt) {
     return BAD_VALUE;
 }
 
-status_t MIPISensor::IoctlStateProbe(void) {
-    if (mVinfo->IsSupportRotation()) {
-            msupportrotate = true;
-            DBG_LOGA("camera support capture rotate");
-            mIoctlSupport |= IOCTL_MASK_ROTATE;
-    }
-    return mIoctlSupport;
-}
-
 status_t MIPISensor::streamOn() {
     return mVinfo->start_capturing();
 }
@@ -595,8 +516,11 @@ int MIPISensor::getStreamConfigurations(uint32_t picSizes[], const int32_t kAvai
             support_w = 10000;
             support_h = 10000;
         }
+    } else {
+        support_w = 1920;
+        support_h = 1080;
     }
-
+    ALOGI("%s:support_w=%d, support_h=%d\n",__FUNCTION__,support_w,support_h);
     memset(&frmsize,0,sizeof(frmsize));
     frmsize.pixel_format = getOutputFormat();
 
@@ -633,7 +557,7 @@ int MIPISensor::getStreamConfigurations(uint32_t picSizes[], const int32_t kAvai
 
             for (k = count; k > START; k -= 4) {
                 if (frmsize.discrete.width * frmsize.discrete.height >
-                        picSizes[k - 3] * picSizes[k - 2]) {
+                    picSizes[k - 3] * picSizes[k - 2]) {
                     picSizes[k + 1] = picSizes[k - 3];
                     picSizes[k + 2] = picSizes[k - 2];
 
@@ -659,7 +583,7 @@ int MIPISensor::getStreamConfigurations(uint32_t picSizes[], const int32_t kAvai
 
         if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE) { //only support this type
 
-            if (0 != (frmsize.discrete.width%16))
+            if (0 != (frmsize.discrete.width % 16))
                 continue;
 
             if ((frmsize.discrete.width * frmsize.discrete.height) > (support_w * support_h))
@@ -720,8 +644,8 @@ int MIPISensor::getStreamConfigurations(uint32_t picSizes[], const int32_t kAvai
                 if (0 != (frmsize.discrete.width%16))
                     continue;
 
-                //if((frmsize.discrete.width > support_w) && (frmsize.discrete.height >support_h))
-                //    continue;
+                if ((frmsize.discrete.width > support_w) && (frmsize.discrete.height >support_h))
+                    continue;
 
                 if (count >= size)
                     break;
@@ -965,7 +889,11 @@ int MIPISensor::getPictureSizes(int32_t picSizes[], int size, bool preview) {
             support_w = 10000;
             support_h = 10000;
         }
+    } else {
+            support_w = 1920;
+            support_h = 1080;
     }
+    ALOGI("%s:support_w=%d, support_h=%d\n",__FUNCTION__,support_w,support_h);
     memset(&frmsize,0,sizeof(frmsize));
     preview_fmt = V4L2_PIX_FMT_NV21;//getOutputFormat();
 
@@ -1041,7 +969,7 @@ int MIPISensor::captureNewImage() {
     bool isjpeg = false;
     uint32_t gain = mGainFactor;
     mKernelBuffer = NULL;
-
+    mTempFD = -1;
     // Might be adding more buffers, so size isn't constant
     ALOGVV("%s:buffer size=%d\n",__FUNCTION__,mNextCapturedBuffers->size());
     for (size_t i = 0; i < mNextCapturedBuffers->size(); i++) {
@@ -1074,47 +1002,32 @@ int MIPISensor::captureNewImage() {
                 if ((b.width == mVinfo->preview.format.fmt.pix.width &&
                 b.height == mVinfo->preview.format.fmt.pix.height) && (orientation == 0)) {
 
-                pixelfmt = getOutputFormat();
-                if (pixelfmt == V4L2_PIX_FMT_YVU420) {
-                    pixelfmt = HAL_PIXEL_FORMAT_YV12;
-                } else if (pixelfmt == V4L2_PIX_FMT_NV21) {
-                    pixelfmt = HAL_PIXEL_FORMAT_YCrCb_420_SP;
-                } else if (pixelfmt == V4L2_PIX_FMT_YUYV) {
-                    pixelfmt = HAL_PIXEL_FORMAT_YCbCr_422_I;
-                } else {
-                    pixelfmt = HAL_PIXEL_FORMAT_YCrCb_420_SP;
-                }
+                    pixelfmt = getOutputFormat();
+                    if (pixelfmt == V4L2_PIX_FMT_YVU420) {
+                        pixelfmt = HAL_PIXEL_FORMAT_YV12;
+                    } else if (pixelfmt == V4L2_PIX_FMT_NV21) {
+                        pixelfmt = HAL_PIXEL_FORMAT_YCrCb_420_SP;
+                    } else if (pixelfmt == V4L2_PIX_FMT_YUYV) {
+                        pixelfmt = HAL_PIXEL_FORMAT_YCbCr_422_I;
+                    } else {
+                        pixelfmt = HAL_PIXEL_FORMAT_YCrCb_420_SP;
+                    }
                 } else {
                     isjpeg = true;
                     pixelfmt = HAL_PIXEL_FORMAT_RGB_888;
                 }
 
-                if (!msupportrotate) {
-                    bAux.streamId = 0;
-                    bAux.width = b.width;
-                    bAux.height = b.height;
-                    bAux.format = pixelfmt;
-                    bAux.stride = b.width;
-                    bAux.buffer = NULL;
-                } else {
-                    if ((orientation == 90) || (orientation == 270)) {
-                        bAux.streamId = 0;
-                        bAux.width = b.height;
-                        bAux.height = b.width;
-                        bAux.format = pixelfmt;
-                        bAux.stride = b.height;
-                        bAux.buffer = NULL;
-                    } else {
-                        bAux.streamId = 0;
-                        bAux.width = b.width;
-                        bAux.height = b.height;
-                        bAux.format = pixelfmt;
-                        bAux.stride = b.width;
-                        bAux.buffer = NULL;
-                    }
-                }
-                // TODO: Reuse these
+                bAux.streamId = 0;
+                bAux.width = b.width;
+                bAux.height = b.height;
+                bAux.format = pixelfmt;
+                bAux.stride = b.width;
+                bAux.buffer = NULL;
+#ifdef GE2D_ENABLE
+                bAux.img = mION->alloc_buffer(b.width * b.height * 3,&bAux.share_fd);
+#else
                 bAux.img = new uint8_t[b.width * b.height * 3];
+#endif
                 mNextCapturedBuffers->push_back(bAux);
                 break;
             case HAL_PIXEL_FORMAT_YCrCb_420_SP:
@@ -1540,6 +1453,38 @@ status_t MIPISensor::setAWB(uint8_t awbMode) {
 }
 void MIPISensor::setSensorListener(SensorListener *listener) {
     Sensor::setSensorListener(listener);
+}
+
+void MIPISensor::dump(int& frame_index, uint8_t* buf,
+                            int length, std::string name) {
+
+    ALOGD("%s:frame_index= %d",__FUNCTION__,frame_index);
+    const int frame_num = 10;
+    static FILE* fp = NULL;
+    if (frame_index > frame_num)
+        return;
+    else if (frame_index == 0) {
+        std::string path("/data/vendor/camera/");
+        path.append(name);
+        ALOGD("full_name:%s",path.c_str());
+
+        fp = fopen(path.c_str(),"ab+");
+        if (!fp) {
+            ALOGE("open file %s fail, error: %s !!!",
+                    path.c_str(),strerror(errno));
+            return;
+        }
+    }
+    if (frame_index++ == frame_num) {
+        int fd = fileno(fp);
+        fsync(fd);
+        fclose(fp);
+        close(fd);
+        return ;
+    }else {
+        ALOGE("write frame %d ",frame_index);
+        fwrite((void*)buf,1,length,fp);
+    }
 }
 
 }

@@ -34,6 +34,8 @@
 
 
 using namespace android;
+#define TempBufferNum   (3)
+#define MaxPollingCount (100)
 #define ROUND_16(X)     ((X + 0xF) & (~0xF))
 #define ROUND_32(X)     ((X + 0x1F) & (~0x1F))
 #define YUV_SIZE(W, H)   ((W) * (H) * 3 >> 1)
@@ -54,6 +56,8 @@ struct GrallocBufInfo {
 
 class OMXDecoder
 {
+public:
+	bool mTimeOut;
 public:
     OMXDecoder();
     OMXDecoder(bool useDMABuffer, bool keepOriginalSize);
@@ -156,7 +160,7 @@ private:
     OMX_STRING mDecoderComponentName;
     OMX_VERSIONTYPE mSpecVersion;
     int mDequeueFailNum;
-    uint8_t* mTempFrame[3];
+    uint8_t* mTempFrame[TempBufferNum];
 private:
     void QueueBuffer(uint8_t* src, size_t size);
     int DequeueBuffer(int dst_fd ,uint8_t* dst_buf,

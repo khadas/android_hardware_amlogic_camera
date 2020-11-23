@@ -1,177 +1,52 @@
-/*
- * Copyright (C) 2011 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * Description:
- */
+#ifndef __MIPI_CAMERA_IO__
+#define __MIPI_CAMERA_IO__
 
-#ifndef __CAMERA_IO__
-#define __CAMERA_IO__
-
-//#define LOG_NDEBUG 0
-#define LOG_TAG "Camera_IO"
+#define LOG_NDEBUG 0
+#define LOG_TAG "MIPI_Camera_IO"
+#define ATRACE_TAG (ATRACE_TAG_CAMERA | ATRACE_TAG_HAL | ATRACE_TAG_ALWAYS)
+#include <utils/Trace.h>
 
 #include <errno.h>
 #include <cutils/properties.h>
-#include "CameraIO.h"
+#include "MIPICameraIO.h"
+
+
 namespace android {
-CVideoInfo::CVideoInfo(){
-    memset(&cap, 0, sizeof(struct v4l2_capability));
-    memset(&preview,0,sizeof(FrameV4L2Info));
-    memset(&picture,0,sizeof(FrameV4L2Info));
-    //memset(mem,0,sizeof(mem));
-    memset(mem_pic,0,sizeof(mem_pic));
-    //memset(canvas,0,sizeof(canvas));
-    isStreaming = false;
-    isPicture = false;
-    //canvas_mode = false;
-    width = 0;
-    height = 0;
-    formatIn = 0;
-    framesizeIn = 0;
-    idVendor = 0;
-    idProduct = 0;
-    idx = 0;
-    fd = -1;
-    tempbuflen = 0;
-    dev_status = 0;
+
+MIPIVideoInfo::MIPIVideoInfo() {
+    ALOGD("mipi video info constructer!");
+
 }
 
-int CVideoInfo::EnumerateFormat(uint32_t pixelformat){
-    struct v4l2_fmtdesc fmt;
-    int ret;
-    if (fd < 0) {
-        ALOGE("camera not be init!");
-        return -1;
+MIPIVideoInfo::~MIPIVideoInfo() {
+    ALOGD("mipi video info destructer!");
+    for (uint32_t i = 0; i < mem.size(); i++) {
+        if (mem[i].dma_fd != -1)
+            close(mem[i].dma_fd);
     }
-    memset(&fmt,0,sizeof(fmt));
-    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    fmt.index = 0;
-    while ((ret = ioctl(fd, VIDIOC_ENUM_FMT, &fmt)) == 0) {
-        if (fmt.pixelformat == pixelformat)
-            return pixelformat;
-        fmt.index++;
+}
+
+//----get dmabuf file descritor according to index
+int MIPIVideoInfo::export_dmabuf_fd(int v4lfd, int index, int* dmafd)
+{
+    struct v4l2_exportbuffer expbuf;
+    memset(&expbuf,0,sizeof(expbuf));
+    expbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    expbuf.index = index;
+    expbuf.flags = 0;
+    expbuf.fd = -1;
+    if (ioctl(v4lfd,VIDIOC_EXPBUF,&expbuf) == -1) {
+        ALOGE("export buffer fail:%s",strerror(errno));
+        return -1;
+    } else {
+        ALOGD("dma buffer fd = %d \n",expbuf.fd);
+        *dmafd = expbuf.fd;
     }
     return 0;
 }
 
-bool CVideoInfo::IsSupportRotation() {
-    struct v4l2_queryctrl qc;
-    int ret = 0;
-    bool Support = false;
-    memset(&qc, 0, sizeof(struct v4l2_queryctrl));
-    qc.id = V4L2_ROTATE_ID;
-    ret = ioctl (fd, VIDIOC_QUERYCTRL, &qc);
-    if ((qc.flags == V4L2_CTRL_FLAG_DISABLED) ||( ret < 0)|| (qc.type != V4L2_CTRL_TYPE_INTEGER)) {
-            Support = false;
-    }else{
-            Support = true;
-    }
-    return Support;
-}
-
-int CVideoInfo::set_rotate(int camera_fd, int value)
-{
-    int ret = 0;
-    struct v4l2_control ctl;
-    if (camera_fd < 0)
-        return -1;
-    if ((value != 0) && (value != 90) && (value != 180) && (value != 270)) {
-        CAMHAL_LOGDB("Set rotate value invalid: %d.", value);
-        return -1;
-    }
-    memset( &ctl, 0, sizeof(ctl));
-    ctl.value=value;
-    ctl.id = V4L2_CID_ROTATE;
-    ALOGD("set_rotate:: id =%x , value=%d",ctl.id,ctl.value);
-    ret = ioctl(camera_fd, VIDIOC_S_CTRL, &ctl);
-    if (ret<0) {
-        CAMHAL_LOGDB("Set rotate value fail: %s,errno=%d. ret=%d", strerror(errno),errno,ret);
-    }
-    return ret ;
-}
-
-void CVideoInfo::set_device_status(void)
-{
-    dev_status = -1;
-}
-
-int CVideoInfo::get_device_status(void)
-{
-    return dev_status;
-}
-
-int CVideoInfo::camera_init(void)
-{
-    ALOGV("%s: E", __FUNCTION__);
-    int ret =0 ;
-    if (fd < 0) {
-          ALOGE("open /dev/video%d failed, errno=%s\n", idx, strerror(errno));
-          return -ENOTTY;
-    }
-
-    ret = ioctl(fd, VIDIOC_QUERYCAP, &cap);
-    if (ret < 0) {
-        ALOGE("VIDIOC_QUERYCAP, errno=%s", strerror(errno));
-        return ret;
-    }
-
-    if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE))
-        ALOGV( "/dev/video%d is not video capture device\n",idx);
-
-
-    if (!(cap.capabilities & V4L2_CAP_STREAMING))
-        ALOGV( "video%d does not support streaming i/o\n",idx);
-
-    if (strstr((const char*)cap.driver,"ARM-camera-isp"))
-        sprintf(sensor_type,"%s","mipi");
-    else
-        sprintf(sensor_type,"%s","usb");
-
-    return ret;
-}
-
-
-int CVideoInfo::setBuffersFormat(void)
-{
-        int ret = 0;
-    if (fd < 0) {
-        ALOGE("camera not be init!");
-        return -1;
-    }
-        if ((preview.format.fmt.pix.width != 0) && (preview.format.fmt.pix.height != 0)) {
-        int pixelformat = preview.format.fmt.pix.pixelformat;
-
-        ret = ioctl(fd, VIDIOC_S_FMT, &preview.format);
-        if (ret < 0) {
-                DBG_LOGB("Open: VIDIOC_S_FMT Failed: %s, ret=%d\n", strerror(errno), ret);
-        }
-
-        CAMHAL_LOGIB("Width * Height %d x %d expect pixelfmt:%.4s, get:%.4s\n",
-                        preview.format.fmt.pix.width,
-                        preview.format.fmt.pix.height,
-                        (char*)&pixelformat,
-                        (char*)&preview.format.fmt.pix.pixelformat);
-        }
-        return ret;
-}
-
-void CVideoInfo::set_buffer_numbers(int io_buffer) {
-    IO_PREVIEW_BUFFER = io_buffer;
-}
-
-int CVideoInfo::start_capturing(void)
+//
+int MIPIVideoInfo::start_capturing(void)
 {
         int ret = 0;
         int i;
@@ -183,50 +58,58 @@ int CVideoInfo::start_capturing(void)
             return -1;
         }
 
-        if (isStreaming) {
-                DBG_LOGA("already stream on\n");
-        }
+        if (isStreaming)
+            ALOGD("already stream on\n");
+
+        //----allocate memory
         CLEAR(preview.rb);
         mem.resize(IO_PREVIEW_BUFFER);
         preview.rb.count = IO_PREVIEW_BUFFER;
         preview.rb.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        //TODO DMABUF & ION
         preview.rb.memory = V4L2_MEMORY_MMAP;
         ret = ioctl(fd, VIDIOC_REQBUFS, &preview.rb);
         if (ret < 0) {
-                DBG_LOGB("camera idx:%d does not support "
-                                "memory mapping, errno=%d\n", idx, errno);
+            DBG_LOGB("camera idx:%d does not support "
+                      "memory mapping, errno=%d\n", idx, errno);
         }
         if (preview.rb.count < 2) {
-                DBG_LOGB( "Insufficient buffer memory on /dev/video%d, errno=%d\n",
-                                idx, errno);
-                return -EINVAL;
+            DBG_LOGB( "Insufficient buffer memory on /dev/video%d, errno=%d\n",
+                            idx, errno);
+            return -EINVAL;
         }
+
+        //----map memory to user space
         for (i = 0; i < (int)preview.rb.count; ++i) {
+            CLEAR(preview.buf);
+            preview.buf.type        = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            preview.buf.memory      = V4L2_MEMORY_MMAP;
+            preview.buf.index       = i;
 
-                CLEAR(preview.buf);
+            if (ioctl(fd, VIDIOC_QUERYBUF, &preview.buf) < 0) {
+                    DBG_LOGB("VIDIOC_QUERYBUF, errno=%d", errno);
+            }
 
-                preview.buf.type        = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-                preview.buf.memory      = V4L2_MEMORY_MMAP;
-                preview.buf.index       = i;
-
-                if (ioctl(fd, VIDIOC_QUERYBUF, &preview.buf) < 0) {
-                        DBG_LOGB("VIDIOC_QUERYBUF, errno=%d", errno);
-                }
-            /*pluge usb camera when preview, vinfo->preview.buf.length value will equal to 0, so save this value*/
             mem[i].size = preview.buf.length;
-            mem[i].addr = mmap(NULL /* start anywhere */,
-                                    mem[i].size,
-                                    PROT_READ | PROT_WRITE /* required */,
-                                    MAP_SHARED /* recommended */,
-                                    fd,
-                                    preview.buf.m.offset);
+            mem[i].addr = mmap(NULL, // start anywhere
+                                mem[i].size,
+                                PROT_READ | PROT_WRITE, // required
+                                MAP_SHARED, // recommended
+                                fd,        //video device fd
+                                preview.buf.m.offset);
 
-                if (MAP_FAILED == mem[i].addr) {
-                        DBG_LOGB("mmap failed, errno=%d\n", errno);
-                }
+            if (MAP_FAILED == mem[i].addr) {
+                ALOGE("mmap failed,%s\n", strerror(errno));
+            }
+            int dma_fd = -1;
+            int ret = export_dmabuf_fd(fd,i, &dma_fd);
+            if (ret) {
+                ALOGE("export dma fd failed,%s\n", strerror(errno));
+            } else {
+                mem[i].dma_fd = dma_fd;
+                ALOGD("index = %d, dma_fd = %d \n",i,mem[i].dma_fd);
+            }
         }
-        ////////////////////////////////
+        //----queue buffer to driver's video buffer queue
         for (i = 0; i < (int)preview.rb.count; ++i) {
 
                 CLEAR(buf);
@@ -237,7 +120,7 @@ int CVideoInfo::start_capturing(void)
                 if (ioctl(fd, VIDIOC_QBUF, &buf) < 0)
                         DBG_LOGB("VIDIOC_QBUF failed, errno=%d\n", errno);
         }
-
+        //----stream on----
         type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         if ((preview.format.fmt.pix.width != 0) &&
                (preview.format.fmt.pix.height != 0)) {
@@ -249,7 +132,7 @@ int CVideoInfo::start_capturing(void)
         return 0;
 }
 
-int CVideoInfo::stop_capturing(void)
+int MIPIVideoInfo::stop_capturing(void)
 {
         enum v4l2_buf_type type;
         int res = 0;
@@ -296,7 +179,7 @@ int CVideoInfo::stop_capturing(void)
         return res;
 }
 
-int CVideoInfo::releasebuf_and_stop_capturing(void)
+int MIPIVideoInfo::releasebuf_and_stop_capturing(void)
 {
         enum v4l2_buf_type type;
         int res = 0 ,ret;
@@ -343,7 +226,7 @@ int CVideoInfo::releasebuf_and_stop_capturing(void)
 }
 
 
-uintptr_t CVideoInfo::get_frame_phys(void)
+uintptr_t MIPIVideoInfo::get_frame_phys(void)
 {
         if (fd < 0) {
             ALOGE("camera not be init!");
@@ -358,12 +241,7 @@ uintptr_t CVideoInfo::get_frame_phys(void)
                 switch (errno) {
                         case EAGAIN:
                                 return 0;
-
                         case EIO:
-                                /* Could ignore EIO, see spec. */
-
-                                /* fall through */
-
                         default:
                                 DBG_LOGB("VIDIOC_DQBUF failed, errno=%d\n", errno);
                                 exit(1);
@@ -374,7 +252,7 @@ uintptr_t CVideoInfo::get_frame_phys(void)
         return (uintptr_t)preview.buf.m.userptr;
 }
 
-int CVideoInfo::get_frame_index(FrameV4L2Info& info) {
+int MIPIVideoInfo::get_frame_index(FrameV4L2Info& info) {
         if (fd < 0) {
             ALOGE("camera not be init!");
             return -1;
@@ -389,13 +267,10 @@ int CVideoInfo::get_frame_index(FrameV4L2Info& info) {
                     return -1;
 
                 case EIO:
-                /* Could ignore EIO, see spec. */
-
-                /* fall through */
-
                 default:
-                    CAMHAL_LOGDB("VIDIOC_DQBUF failed, errno=%d\n", errno); //CAMHAL_LOGDB
-                    //exit(1); /*here will generate crash, so delete.  when ocour error, should break while() loop*/
+                    CAMHAL_LOGDB("VIDIOC_DQBUF failed, errno=%d\n", errno);
+                    //here will generate crash, so delete.  when ocour error, should break while() loop
+                    //exit(1);
                     if (errno == ENODEV) {
                         ALOGE("camera device is not exist!");
                         set_device_status();
@@ -408,16 +283,23 @@ int CVideoInfo::get_frame_index(FrameV4L2Info& info) {
         return info.buf.index;
 }
 
-void* CVideoInfo::get_frame()
+int MIPIVideoInfo::get_frame_buffer(struct VideoInfoBuffer* b)
 {
-    //DBG_LOGA("get frame\n");
     int index = get_frame_index(preview);
+    ALOGD("%s:index = %d \n",__FUNCTION__,index);
     if (index < 0)
-        return nullptr;
-    return mem[index].addr;
+        return -1;
+    else {
+        index = index % IO_PREVIEW_BUFFER;
+        ALOGD("%s: index=%d,dma_fd=%d\n",__FUNCTION__,index,mem[index].dma_fd);
+        b->addr = mem[index].addr;
+        b->size = mem[index].size;
+        b->dma_fd = mem[index].dma_fd;
+    }
+    return 0;
 }
 
-int CVideoInfo::putback_frame()
+int MIPIVideoInfo::putback_frame()
 {
         if (dev_status == -1)
             return 0;
@@ -440,7 +322,7 @@ int CVideoInfo::putback_frame()
         return 0;
 }
 
-int CVideoInfo::putback_picture_frame()
+int MIPIVideoInfo::putback_picture_frame()
 {
         if (fd < 0) {
             ALOGE("camera not be init!");
@@ -452,7 +334,7 @@ int CVideoInfo::putback_picture_frame()
         return 0;
 }
 
-int CVideoInfo::start_picture(int rotate)
+int MIPIVideoInfo::start_picture(int rotate)
 {
         int ret = 0;
         int i;
@@ -485,7 +367,6 @@ int CVideoInfo::start_picture(int rotate)
         //step 2 : request buffer
         picture.rb.count = IO_PICTURE_BUFFER;
         picture.rb.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        //TODO DMABUF & ION
         picture.rb.memory = V4L2_MEMORY_MMAP;
 
         ret = ioctl(fd, VIDIOC_REQBUFS, &picture.rb);
@@ -502,31 +383,35 @@ int CVideoInfo::start_picture(int rotate)
 
         //step 3: mmap buffer
         for (i = 0; i < (int)picture.rb.count; ++i) {
+            CLEAR(picture.buf);
+            picture.buf.type        = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            picture.buf.memory      = V4L2_MEMORY_MMAP;
+            picture.buf.index       = i;
 
-                CLEAR(picture.buf);
+            if (ioctl(fd, VIDIOC_QUERYBUF, &picture.buf) < 0) {
+                    ALOGE("VIDIOC_QUERYBUF, errno=%d", errno);
+            }
+            mem_pic[i].size = picture.buf.length;
+            mem_pic[i].addr = mmap(NULL, // start anywhere
+                                    mem_pic[i].size,
+                                    PROT_READ | PROT_WRITE, // required
+                                    MAP_SHARED, //recommended
+                                    fd,
+                                    picture.buf.m.offset);
 
-                picture.buf.type        = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-                picture.buf.memory      = V4L2_MEMORY_MMAP;
-                picture.buf.index       = i;
-
-                if (ioctl(fd, VIDIOC_QUERYBUF, &picture.buf) < 0) {
-                        DBG_LOGB("VIDIOC_QUERYBUF, errno=%d", errno);
-                }
-                mem_pic[i].size = picture.buf.length;
-                mem_pic[i].addr = mmap(NULL /* start anywhere */,
-                                        mem_pic[i].size,
-                                        PROT_READ | PROT_WRITE /* required */,
-                                        MAP_SHARED /* recommended */,
-                                        fd,
-                                        picture.buf.m.offset);
-
-                if (MAP_FAILED == mem_pic[i].addr) {
-                        DBG_LOGB("mmap failed, errno=%d\n", errno);
-                }
+            if (MAP_FAILED == mem_pic[i].addr) {
+                    ALOGE("mmap failed, errno=%d\n", errno);
+            }
+            int dma_fd = -1;
+            int ret = export_dmabuf_fd(fd,i, &dma_fd);
+            if (ret) {
+                ALOGE("export dma fd failed,%s\n", strerror(errno));
+            } else {
+                mem_pic[i].dma_fd = dma_fd;
+            }
         }
 
         //step 4 : QBUF
-                ////////////////////////////////
         for (i = 0; i < (int)picture.rb.count; ++i) {
 
                 CLEAR(buf);
@@ -545,9 +430,7 @@ int CVideoInfo::start_picture(int rotate)
         if (strstr((const char *)cap.driver, "uvcvideo")) {
             usbcamera = true;
         }
-        if (!usbcamera) {
-            set_rotate(fd,rotate);
-        }
+
         //step 5: Stream ON
         type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         if (ioctl(fd, VIDIOC_STREAMON, &type) < 0)
@@ -557,25 +440,25 @@ int CVideoInfo::start_picture(int rotate)
         return 0;
 }
 
-void* CVideoInfo::get_picture()
+int MIPIVideoInfo::get_picture_fd()
 {
     DBG_LOGA("get picture\n");
     int index = get_frame_index(picture);
     if (index < 0)
-        return nullptr;
-    return mem_pic[picture.buf.index].addr;
+        return -1;
+    return mem_pic[picture.buf.index].dma_fd;
 }
 
-void CVideoInfo::stop_picture()
+void MIPIVideoInfo::stop_picture()
 {
         enum v4l2_buf_type type;
         struct  v4l2_buffer buf;
         int i;
         int ret;
         if (fd < 0) {
-                ALOGE("camera not be init!");
-                return ;
-            }
+            ALOGE("camera not be init!");
+            return ;
+        }
 
         if (!isPicture)
                 return ;
@@ -598,27 +481,22 @@ void CVideoInfo::stop_picture()
             if (munmap(mem_pic[i].addr, mem_pic[i].size) < 0)
                 DBG_LOGB("munmap failed errno=%d", errno);
         }
+        picture.format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        picture.rb.memory = V4L2_MEMORY_MMAP;
+        picture.rb.count = 0;
 
-        if (strstr((const char *)cap.driver, "ARM-camera-isp")) {
-            picture.format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-            picture.rb.memory = V4L2_MEMORY_MMAP;
-            picture.rb.count = 0;
-
-            ret = ioctl(fd, VIDIOC_REQBUFS, &picture.rb);
-            if (ret < 0) {
-                DBG_LOGB("VIDIOC_REQBUFS failed: %s", strerror(errno));
-            } else {
-                DBG_LOGA("VIDIOC_REQBUFS delete buffer success\n");
-            }
+        ret = ioctl(fd, VIDIOC_REQBUFS, &picture.rb);
+        if (ret < 0) {
+            DBG_LOGB("VIDIOC_REQBUFS failed: %s", strerror(errno));
+        } else {
+            DBG_LOGA("VIDIOC_REQBUFS delete buffer success\n");
         }
-
-        set_rotate(fd,0);
         isPicture = false;
         setBuffersFormat();
         start_capturing();
 }
 
-void CVideoInfo::releasebuf_and_stop_picture()
+void MIPIVideoInfo::releasebuf_and_stop_picture()
 {
         enum v4l2_buf_type type;
         struct  v4l2_buffer buf;
@@ -665,6 +543,7 @@ void CVideoInfo::releasebuf_and_stop_picture()
         setBuffersFormat();
         start_capturing();
 }
+
 }
 #endif
 

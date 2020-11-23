@@ -169,6 +169,8 @@ int EmulatedCameraFactory::getCameraInfo(int camera_id, struct camera_info* info
              __FUNCTION__, camera_id, getEmulatedCameraNum());
         return -ENODEV;
     }
+    if (!mEmulatedCameras[camera_id])
+        return -ENODEV;
     return mEmulatedCameras[camera_id]->getCameraInfo(info);
 }
 

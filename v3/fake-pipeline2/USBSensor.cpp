@@ -161,13 +161,7 @@ int USBSensor::SensorInit(int idx) {
     }
     InitVideoInfo(idx);
     mVinfo->camera_init();
-    if (strstr((const char *)mVinfo->cap.card, "front"))
-        mSensorFace = SENSOR_FACE_FRONT;
-    else if (strstr((const char *)mVinfo->cap.card, "back"))
-        mSensorFace = SENSOR_FACE_BACK;
-    else
-        mSensorFace = SENSOR_FACE_NONE;
-
+    setIOBufferNum();
     mSensorType = SENSOR_USB;
     return ret;
 }
@@ -217,15 +211,6 @@ uint32_t USBSensor::getStreamUsage(int stream_type){
 
     ALOGV("%s: usage=0x%x", __FUNCTION__,usage);
     return usage;
-}
-
-status_t USBSensor::IoctlStateProbe(void) {
-    if (mVinfo->IsSupportRotation()) {
-            msupportrotate = true;
-            DBG_LOGA("camera support capture rotate");
-            mIoctlSupport |= IOCTL_MASK_ROTATE;
-    }
-    return mIoctlSupport;
 }
 
 status_t USBSensor::setOutputFormat(int width, int height,
@@ -372,8 +357,6 @@ status_t USBSensor::streamOff(void){
     ALOGV("%s: E", __FUNCTION__);
     if (mDecoder && mIsDecoderInit == true) {
         mDecoder->deinitialize();
-        delete mDecoder;
-        mDecoder = NULL;
         mIsDecoderInit = false;
     }
     if (mHalMediaCodec && mInitMediaCodec == true) {
@@ -383,6 +366,18 @@ status_t USBSensor::streamOff(void){
 
     return mVinfo->releasebuf_and_stop_capturing();
 
+}
+void USBSensor::setIOBufferNum()
+{
+    char buffer_number[128];
+    int tmp = 4;
+    if (property_get("ro.vendor.usbcamera.iobuffer", buffer_number, NULL) > 0) {
+        sscanf(buffer_number, "%d", &tmp);
+        ALOGD("get property value is %d\n",tmp);
+    } else {
+        ALOGD("defalut buffer number is %d\n",tmp);
+    }
+    mVinfo->set_buffer_numbers(tmp);
 }
 
 status_t USBSensor::getOutputFormat(void){
@@ -452,7 +447,7 @@ int USBSensor::halFormatToSensorFormat(uint32_t pixelfmt){
     return BAD_VALUE;
 }
 
-void USBSensor::captureRGB(uint8_t *img, uint32_t gain, uint32_t stride) {
+void USBSensor::takePicture(StreamBuffer b, uint32_t stride) {
     uint8_t *src = NULL;
     int ret = 0, rotate = 0;
     uint32_t width = 0, height = 0;
@@ -504,16 +499,20 @@ void USBSensor::captureRGB(uint8_t *img, uint32_t gain, uint32_t stride) {
             if (mVinfo->picture.format.fmt.pix.pixelformat == V4L2_PIX_FMT_MJPEG) {
                 int result = 0;
                 int length = mVinfo->picture.buf.bytesused;
-                result = mCameraUtil->MJPEGToRGB(src,length,width,height,img);
+                result = mCameraUtil->MJPEGToRGB(src,length,width,height,b.img);
                 if (result != 0) {
                     mVinfo->putback_picture_frame();
                     usleep(5000);
                 }else {
+#ifdef GE2D_ENABLE
+                    ALOGD("%s:do rotation and mirror",__FUNCTION__);
+                    ge2dDevice::doRotationAndMirror(b);
+#endif
                     break;
                 }
             } else if (mVinfo->picture.format.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV) {
                 if (mVinfo->picture.buf.length == mVinfo->picture.buf.bytesused) {
-                    mCameraUtil->yuyv422_to_rgb24(src,img,width,height);
+                    mCameraUtil->yuyv422_to_rgb24(src,b.img,width,height);
                     break;
                 } else {
                     mVinfo->putback_picture_frame();
@@ -521,13 +520,13 @@ void USBSensor::captureRGB(uint8_t *img, uint32_t gain, uint32_t stride) {
                 }
             } else if (mVinfo->picture.format.fmt.pix.pixelformat == V4L2_PIX_FMT_RGB24) {
                 if (mVinfo->picture.buf.length == width * height * 3) {
-                    memcpy(img, src, mVinfo->picture.buf.length);
+                    memcpy(b.img, src, mVinfo->picture.buf.length);
                 } else {
-                    mCameraUtil->rgb24_memcpy(img, src, width, height);
+                    mCameraUtil->rgb24_memcpy(b.img, src, width, height);
                 }
                 break;
             } else if (mVinfo->picture.format.fmt.pix.pixelformat == V4L2_PIX_FMT_NV21) {
-                memcpy(img, src, mVinfo->picture.buf.length);
+                memcpy(b.img, src, mVinfo->picture.buf.length);
                 break;
             }
         }
@@ -554,7 +553,7 @@ void USBSensor::captureNV21(StreamBuffer b, uint32_t gain) {
                //copy the first buffer to new buffer to do recording
 #ifdef GE2D_ENABLE
                 if (mTempFD != -1)
-                    ge2dDevice::ge2d_copy(b.share_fd,mTempFD,b.stride,b.height);
+                    ge2dDevice::ge2d_copy(b.share_fd,mTempFD,b.stride,b.height,ge2dDevice::NV12);
                 else
                     memcpy(b.img, src, b.stride * b.height * 3/2);
 #else
@@ -610,6 +609,9 @@ void USBSensor::captureNV21(StreamBuffer b, uint32_t gain) {
                 } else {
                     mCameraUtil->nv21_memcpy_align32 (b.img, src, b.width, b.height);
                 }
+#ifdef GE2D_ENABLE
+                ge2dDevice::doRotationAndMirror(b);
+#endif
                 mDecodedBuffer = b.img;
                 mKernelBuffer = src;
                 mVinfo->putback_frame();
@@ -630,6 +632,9 @@ void USBSensor::captureNV21(StreamBuffer b, uint32_t gain) {
                         }
                         mCameraUtil->ReSizeNV21(mImage_buffer, b.img, b.width, b.height, b.stride,width,height);
                     }
+#ifdef GE2D_ENABLE
+                    ge2dDevice::doRotationAndMirror(b);
+#endif
                     mDecodedBuffer = mImage_buffer;
                     mKernelBuffer = src;
                     mVinfo->putback_frame();
@@ -640,13 +645,24 @@ void USBSensor::captureNV21(StreamBuffer b, uint32_t gain) {
                     int ret = MJPEGToNV21(src, b);
                     if (ret == 1)
                         continue;
+#ifdef GE2D_ENABLE
+                    ge2dDevice::doRotationAndMirror(b);
+#endif
                 }
                 break;
             case V4L2_PIX_FMT_H264:
                 {
                    int ret = H264ToNV21(src, b);
-                   if (ret == 1)
+                   if (ret == 1) {
                         continue;
+                    }else {
+#ifdef GE2D_ENABLE
+                        ge2dDevice::doRotationAndMirror(b);
+#endif
+                        mDecodedBuffer = b.img;
+                        mKernelBuffer = src;
+                        mVinfo->putback_frame();
+                    }
                 }
                 break;
             default:
@@ -729,6 +745,11 @@ int USBSensor::MJPEGToNV21(uint8_t* src, StreamBuffer b) {
                     mVinfo->putback_frame();
                     //continue;
                     flag = 1;
+                    if (mDecoder->mTimeOut && mIsDecoderInit == true) {
+                        mDecoder->deinitialize();
+                        mIsDecoderInit = false;
+                        initDecoder(width,height,4);
+                    }
                 } else {
                     mDecodedBuffer = b.img;
                     mKernelBuffer = src;
@@ -992,7 +1013,7 @@ void USBSensor::dump(int& frame_index, uint8_t* buf, int length, std::string nam
     if (frame_index > frame_num)
         return;
     else if (frame_index == 0) {
-        std::string path("/data/");
+        std::string path("/data/vendor/camera/");
         path.append(name);
         ALOGD("full_name:%s",path.c_str());
 
@@ -1943,75 +1964,11 @@ status_t USBSensor::force_reset_sensor() {
     DBG_LOGB("%s , ret = %d", __FUNCTION__, ret);
     return ret;
 }
-
-int USBSensor::doRotationAndMirror() {
-#ifdef GE2D_ENABLE
-    aml_ge2d_t m_Amlge2d;
-    int share_fd;
-    size_t degree;
-    bool flip = false, mirror = false;
-    char property[PROPERTY_VALUE_MAX];
-    property_get("vendor.camera.rotation", property, "0");
-    int value = atoi(property);
-    switch (value) {
-        case 0:
-        case 90:
-        case 180:
-        case 270:
-            degree = value;
-            break;
-        default:
-            degree = 0;
-            break;
-    };
-    enum {
-        HORIZANTAL = 0,
-        VERTICAL,
-    };
-    property_get("vendor.camera.mirror", property, "false");
-    if (strstr(property, "true"))
-        mirror = true;
-
-    property_get("vendor.camera.flip", property, "false");
-    if (strstr(property, "true"))
-        flip = true;
-    /*alloc buffer using ge2d device*/
-
-    for (size_t i = 0; i < mNextCapturedBuffers->size(); i++) {
-        const StreamBuffer &b = (*mNextCapturedBuffers)[i];
-        size_t width = b.width;
-        size_t height = b.height;
-        if (mirror) {
-            ge2dDevice::ge2d_alloc(width,height,&share_fd,ge2dDevice::NV12,m_Amlge2d);
-            /*copy image to memory allocated by ge2d*/
-            ge2dDevice::ge2d_copy(share_fd,b.share_fd,width,height);
-            /*if decode ok, then mirror the image*/
-            ge2dDevice::ge2d_mirror(b.share_fd,width,height,ge2dDevice::NV12,m_Amlge2d);
-        }
-        if (flip) {
-            ge2dDevice::ge2d_alloc(width,height,&share_fd,ge2dDevice::NV12,m_Amlge2d);
-            ge2dDevice::ge2d_copy(share_fd,b.share_fd,width,height);
-            /*if decode ok, then mirror the image*/
-            ge2dDevice::ge2d_flip(b.share_fd,width,height,ge2dDevice::NV12,m_Amlge2d);
-        }
-        if (!!degree) {
-            ge2dDevice::ge2d_alloc(width,height,&share_fd,ge2dDevice::NV12,m_Amlge2d);
-            /*copy image to memory allocated by ge2d*/
-            ge2dDevice::ge2d_copy(share_fd,b.share_fd,width,height);
-            /*if decode ok, then rotate the image*/
-            ge2dDevice::ge2d_rotation(b.share_fd,width,height,ge2dDevice::NV12,degree,m_Amlge2d);
-        }
-    }
-    return 0;
-#else
-    return 0;
-#endif
-}
-
 int USBSensor::captureNewImage() {
     bool isjpeg = false;
     uint32_t gain = mGainFactor;
     mKernelBuffer = NULL;
+    mTempFD = -1;
     mDecodedBuffer = NULL;
     mIsRequestFinished = false;
     size_t buffer_num = mNextCapturedBuffers->size();
@@ -2032,7 +1989,7 @@ int USBSensor::captureNewImage() {
                 break;
 #endif
             case HAL_PIXEL_FORMAT_RGB_888:
-                captureRGB(b.img, gain, b.stride);
+                takePicture(b,b.stride);
                 break;
             case HAL_PIXEL_FORMAT_RGBA_8888:
                 captureRGBA(b.img, gain, b.stride);
@@ -2046,49 +2003,31 @@ int USBSensor::captureNewImage() {
                 orientation = getPictureRotate();
                 ALOGD("bAux orientation=%d",orientation);
                 uint32_t pixelfmt;
-                if ((b.width == mVinfo->preview.format.fmt.pix.width &&
-                b.height == mVinfo->preview.format.fmt.pix.height) && (orientation == 0)) {
+                if ((b.width == mVinfo->preview.format.fmt.pix.width
+                    && b.height == mVinfo->preview.format.fmt.pix.height)
+                    && (orientation == 0)) {
 
-                pixelfmt = getOutputFormat();
-                if (pixelfmt == V4L2_PIX_FMT_YVU420) {
-                    pixelfmt = HAL_PIXEL_FORMAT_YV12;
-                } else if (pixelfmt == V4L2_PIX_FMT_NV21) {
-                    pixelfmt = HAL_PIXEL_FORMAT_YCrCb_420_SP;
-                } else if (pixelfmt == V4L2_PIX_FMT_YUYV) {
-                    pixelfmt = HAL_PIXEL_FORMAT_YCbCr_422_I;
-                } else {
-                    pixelfmt = HAL_PIXEL_FORMAT_YCrCb_420_SP;
-                }
+                    pixelfmt = getOutputFormat();
+                    if (pixelfmt == V4L2_PIX_FMT_YVU420) {
+                        pixelfmt = HAL_PIXEL_FORMAT_YV12;
+                    } else if (pixelfmt == V4L2_PIX_FMT_NV21) {
+                        pixelfmt = HAL_PIXEL_FORMAT_YCrCb_420_SP;
+                    } else if (pixelfmt == V4L2_PIX_FMT_YUYV) {
+                        pixelfmt = HAL_PIXEL_FORMAT_YCbCr_422_I;
+                    } else {
+                        pixelfmt = HAL_PIXEL_FORMAT_YCrCb_420_SP;
+                    }
                 } else {
                     isjpeg = true;
                     pixelfmt = HAL_PIXEL_FORMAT_RGB_888;
                 }
 
-                if (!msupportrotate) {
-                    bAux.streamId = 0;
-                    bAux.width = b.width;
-                    bAux.height = b.height;
-                    bAux.format = pixelfmt;
-                    bAux.stride = b.width;
-                    bAux.buffer = NULL;
-                } else {
-                    if ((orientation == 90) || (orientation == 270)) {
-                        bAux.streamId = 0;
-                        bAux.width = b.height;
-                        bAux.height = b.width;
-                        bAux.format = pixelfmt;
-                        bAux.stride = b.height;
-                        bAux.buffer = NULL;
-                    } else {
-                        bAux.streamId = 0;
-                        bAux.width = b.width;
-                        bAux.height = b.height;
-                        bAux.format = pixelfmt;
-                        bAux.stride = b.width;
-                        bAux.buffer = NULL;
-                    }
-                }
-                // TODO: Reuse these
+                bAux.streamId = 0;
+                bAux.width = b.width;
+                bAux.height = b.height;
+                bAux.format = pixelfmt;
+                bAux.stride = b.width;
+                bAux.buffer = NULL;
 #ifdef GE2D_ENABLE
                 bAux.img = mION->alloc_buffer(b.width * b.height * 3,&bAux.share_fd);
 #else

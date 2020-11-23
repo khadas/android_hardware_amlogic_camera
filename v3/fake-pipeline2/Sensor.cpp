@@ -37,7 +37,6 @@
 #include "libyuv.h"
 #include "NV12_resize.h"
 #include "libyuv/scale.h"
-//#include "ge2d_stream.h"
 #include "util.h"
 #include <sys/time.h>
 #include <inttypes.h>
@@ -115,6 +114,11 @@ const usb_frmsize_discrete_t kUsbAvailablePictureSize[] = {
         {352, 288},
         {320, 240},
 };
+#define MAX_WIDTH  (1920)
+#define MAX_HEIGHT (1080)
+
+uint8_t uBuffer[MAX_WIDTH * MAX_HEIGHT /4];
+uint8_t vBuffer[MAX_WIDTH * MAX_HEIGHT /4];
 
 /** A few utility functions for math, normal distributions */
 
@@ -200,7 +204,6 @@ Sensor::Sensor():
         mTemp_buffer(NULL),
         mExitSensorThread(false),
         mIoctlSupport(0),
-        msupportrotate(0),
         mTimeOutCount(0),
         mWait(false),
         mPre_width(0),
@@ -249,14 +252,6 @@ status_t Sensor::startUp(int idx) {
     if (strstr((const char *)vinfo->cap.card, "share_fd")) {
         mSensorType = SENSOR_SHARE_FD;
     }
-
-    if (strstr((const char *)vinfo->cap.card, "front"))
-        mSensorFace = SENSOR_FACE_FRONT;
-    else if (strstr((const char *)vinfo->cap.card, "back"))
-        mSensorFace = SENSOR_FACE_BACK;
-    else
-        mSensorFace = SENSOR_FACE_NONE;
-
     return res;
 }
 
@@ -264,26 +259,6 @@ sensor_type_e Sensor::getSensorType(void)
 {
     return mSensorType;
 }
-status_t Sensor::IoctlStateProbe(void) {
-    struct v4l2_queryctrl qc;
-    int ret = 0;
-    mIoctlSupport = 0;
-    memset(&qc, 0, sizeof(struct v4l2_queryctrl));
-    qc.id = V4L2_ROTATE_ID;
-    ret = ioctl (vinfo->fd, VIDIOC_QUERYCTRL, &qc);
-    if((qc.flags == V4L2_CTRL_FLAG_DISABLED) ||( ret < 0)|| (qc.type != V4L2_CTRL_TYPE_INTEGER)){
-        mIoctlSupport &= ~IOCTL_MASK_ROTATE;
-    }else{
-        mIoctlSupport |= IOCTL_MASK_ROTATE;
-    }
-
-    if(mIoctlSupport & IOCTL_MASK_ROTATE){
-        msupportrotate = true;
-        DBG_LOGA("camera support capture rotate");
-    }
-    return mIoctlSupport;
-}
-
 uint32_t Sensor::getStreamUsage(int stream_type)
 {
     uint32_t usage = GRALLOC_USAGE_HW_CAMERA_WRITE;
@@ -1220,7 +1195,6 @@ bool Sensor::threadLoop() {
         //} else {
             captureNewImage();
         //}
-           doRotationAndMirror();
         mFramecount ++;
         ALOGVV("Sensor vertical blanking interval");
         nsecs_t workDoneRealTime = systemTime();
@@ -1283,7 +1257,7 @@ int Sensor::captureNewImage() {
     bool isjpeg = false;
     uint32_t gain = mGainFactor;
     mKernelBuffer = NULL;
-
+    mTempFD = -1;
     // Might be adding more buffers, so size isn't constant
     ALOGVV("size=%d\n", mNextCapturedBuffers->size());
     for (size_t i = 0; i < mNextCapturedBuffers->size(); i++) {
@@ -1331,30 +1305,12 @@ int Sensor::captureNewImage() {
                     pixelfmt = HAL_PIXEL_FORMAT_RGB_888;
                 }
 
-                if (!msupportrotate) {
-                    bAux.streamId = 0;
-                    bAux.width = b.width;
-                    bAux.height = b.height;
-                    bAux.format = pixelfmt;
-                    bAux.stride = b.width;
-                    bAux.buffer = NULL;
-                } else {
-                    if ((orientation == 90) || (orientation == 270)) {
-                        bAux.streamId = 0;
-                        bAux.width = b.height;
-                        bAux.height = b.width;
-                        bAux.format = pixelfmt;
-                        bAux.stride = b.height;
-                        bAux.buffer = NULL;
-                    } else {
-                        bAux.streamId = 0;
-                        bAux.width = b.width;
-                        bAux.height = b.height;
-                        bAux.format = pixelfmt;
-                        bAux.stride = b.width;
-                        bAux.buffer = NULL;
-                    }
-                }
+                bAux.streamId = 0;
+                bAux.width = b.width;
+                bAux.height = b.height;
+                bAux.format = pixelfmt;
+                bAux.stride = b.width;
+                bAux.buffer = NULL;
                 // TODO: Reuse these
                 bAux.img = new uint8_t[b.width * b.height * 3];
                 mNextCapturedBuffers->push_back(bAux);
@@ -1725,7 +1681,7 @@ int Sensor::getStreamConfigurationDurations(uint32_t picSizes[], int64_t duratio
                                 duration[count+3] = 0;
                             else {
                                 if ((mSensorType == SENSOR_USB)
-                                    && (fival.width *fival.width >= 1920*1080))
+                                    && (fival.width *fival.height >= 1920*1080))
                                     duration[count+3] = (int64_t)66666666L;
                                 else
                                     duration[count+3] = (int64_t)33333333L;
@@ -2073,21 +2029,12 @@ void Sensor::captureRGB(uint8_t *img, uint32_t gain, uint32_t stride) {
                     return;
                 }
 #if ANDROID_PLATFORM_SDK_VERSION > 23
-        uint8_t *vBuffer = new uint8_t[width * height / 4];
-        if (vBuffer == NULL)
-            ALOGE("alloc temperary v buffer failed\n");
-        uint8_t *uBuffer = new uint8_t[width * height / 4];
-        if (uBuffer == NULL)
-            ALOGE("alloc temperary u buffer failed\n");
-
         if (ConvertToI420(src, vinfo->picture.buf.bytesused, tmp_buffer, width, uBuffer, (width + 1) / 2,
                               vBuffer, (width + 1) / 2, 0, 0, width, height,
                               width, height, libyuv::kRotate0, libyuv::FOURCC_MJPG) != 0) {
             DBG_LOGA("Decode MJPEG frame failed\n");
             putback_picture_frame(vinfo);
             usleep(5000);
-            delete []vBuffer;
-            delete []uBuffer;
         } else {
 
             uint8_t *pUVBuffer = tmp_buffer + width * height;
@@ -2095,14 +2042,11 @@ void Sensor::captureRGB(uint8_t *img, uint32_t gain, uint32_t stride) {
                 *pUVBuffer++ = *(vBuffer + i);
                 *pUVBuffer++ = *(uBuffer + i);
             }
-
-            delete []vBuffer;
-            delete []uBuffer;
-                    nv21_to_rgb24(tmp_buffer,img,width,height);
-                    if (tmp_buffer != NULL)
-                        delete [] tmp_buffer;
-                    break;
-                }
+            nv21_to_rgb24(tmp_buffer,img,width,height);
+            if (tmp_buffer != NULL)
+                delete [] tmp_buffer;
+                break;
+            }
 #else
                 if (ConvertMjpegToNV21(src, vinfo->picture.buf.bytesused, tmp_buffer,
                     width, tmp_buffer + width * height, (width + 1) / 2, width,
@@ -2366,23 +2310,10 @@ void Sensor::captureNV21(StreamBuffer b, uint32_t gain) {
             uint32_t height = vinfo->preview.format.fmt.pix.height;
 #if ANDROID_PLATFORM_SDK_VERSION > 23
             if ((width == b.width) && (height == b.height)) {
-                uint8_t *vBuffer = new uint8_t[width * height / 4];
-                if (vBuffer == NULL)
-                    ALOGE("alloc temperary v buffer failed\n");
-                uint8_t *uBuffer = new uint8_t[width * height / 4];
-                if (uBuffer == NULL) {
-                    if (vBuffer != NULL) {
-                        delete []vBuffer;
-                    }
-                    ALOGE("alloc temperary u buffer failed\n");
-                }
-
                 if (ConvertToI420(src, vinfo->preview.buf.bytesused, b.img, b.stride, uBuffer, (b.stride + 1) / 2,
                       vBuffer, (b.stride + 1) / 2, 0, 0, width, height,
                       width, height, libyuv::kRotate0, libyuv::FOURCC_MJPG) != 0) {
                     DBG_LOGA("Decode MJPEG frame failed\n");
-                    delete []vBuffer;
-                    delete []uBuffer;
                     putback_frame(vinfo);
                     ALOGE("%s , %d , Decode MJPEG frame failed \n", __FUNCTION__ , __LINE__);
                     continue;
@@ -2392,28 +2323,13 @@ void Sensor::captureNV21(StreamBuffer b, uint32_t gain) {
                     *pUVBuffer++ = *(vBuffer + i);
                     *pUVBuffer++ = *(uBuffer + i);
                 }
-                delete []vBuffer;
-                delete []uBuffer;
                 mKernelBuffer = b.img;
             } else {
                 memset(mTemp_buffer, 0 , width * height * 3/2);
-                uint8_t *vBuffer = new uint8_t[width * height / 4];
-                if (vBuffer == NULL)
-                    ALOGE("alloc temperary v buffer failed\n");
-                uint8_t *uBuffer = new uint8_t[width * height / 4];
-                if (uBuffer == NULL) {
-                    if (vBuffer != NULL) {
-                        delete []vBuffer;
-                    }
-                    ALOGE("alloc temperary u buffer failed\n");
-                }
-
                 if (ConvertToI420(src, vinfo->preview.buf.bytesused, mTemp_buffer, width, uBuffer, (width + 1) / 2,
                       vBuffer, (width + 1) / 2, 0, 0, width, height,
                       width, height, libyuv::kRotate0, libyuv::FOURCC_MJPG) != 0) {
                     DBG_LOGA("Decode MJPEG frame failed\n");
-                    delete []vBuffer;
-                    delete []uBuffer;
                     putback_frame(vinfo);
                     ALOGE("%s , %d , Decode MJPEG frame failed \n", __FUNCTION__ , __LINE__);
                     continue;
@@ -2423,8 +2339,6 @@ void Sensor::captureNV21(StreamBuffer b, uint32_t gain) {
                     *pUVBuffer++ = *(vBuffer + i);
                     *pUVBuffer++ = *(uBuffer + i);
                 }
-                delete []vBuffer;
-                delete []uBuffer;
                 ReSizeNV21(vinfo, mTemp_buffer, b.img, b.width, b.height, b.stride);
                 mKernelBuffer = mTemp_buffer;
           }

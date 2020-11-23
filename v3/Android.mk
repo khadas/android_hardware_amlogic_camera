@@ -48,6 +48,8 @@ LOCAL_CFLAGS+=-DCAMHAL_PATH=\"${CAMHAL_PATH}\"
 ########################################################################################################
 GE2D_ENABLE := true
 GE2D_VERSION_2 := true
+ISP_ENABLE := false
+GDC_ENABLE := false
 LOCAL_SHARED_LIBRARIES:= \
     libbinder \
     liblog \
@@ -75,6 +77,10 @@ endif
 ifeq ($(NEED_ISP),true)
 LOCAL_SHARED_LIBRARIES += libispaaa
 LOCAL_CFLAGS += -DISP_ENABLE
+endif
+ifeq ($(GDC_ENABLE),true)
+LOCAL_SHARED_LIBRARIES += libgdc
+LOCAL_CFLAGS += -DGDC_ENABLE
 endif
 LOCAL_STATIC_LIBRARIES := \
     libyuv_static \
@@ -128,6 +134,10 @@ LOCAL_C_INCLUDES += $(TOP)/vendor/common/system/libge2d/include/
 endif
 endif
 
+ifeq ($(GDC_ENABLE),true)
+LOCAL_C_INCLUDES += $(TOP)/vendor/amlogic/common/system/libgdc/include
+endif
+
 LOCAL_SRC_FILES := \
     EmulatedCameraHal.cpp \
     EmulatedCameraFactory.cpp \
@@ -160,11 +170,20 @@ LOCAL_SRC_FILES := \
     fake-pipeline2/OMXDecoder.cpp \
     fake-pipeline2/HalMediaCodec.cpp \
     fake-pipeline2/CameraIO.cpp \
-    fake-pipeline2/CameraDevice.cpp
+    fake-pipeline2/CameraDevice.cpp \
+    fake-pipeline2/Isp3a.cpp \
+    fake-pipeline2/MIPICameraIO.cpp \
+    fake-pipeline2/CaptureUseMemcpy.cpp \
 
 ifeq ($(GE2D_ENABLE),true)
 LOCAL_SRC_FILES += fake-pipeline2/ge2d_stream.cpp \
-                   fake-pipeline2/ion_if.cpp
+                   fake-pipeline2/ion_if.cpp \
+                   fake-pipeline2/CaptureUseGe2d.cpp
+endif
+
+ifeq ($(GDC_ENABLE),true)
+LOCAL_SRC_FILES += fake-pipeline2/gdcUseFd.cpp
+LOCAL_SRC_FILES += fake-pipeline2/gdcUseMemcpy.cpp
 endif
 
 ifeq ($(TARGET_PRODUCT),vbox_x86)

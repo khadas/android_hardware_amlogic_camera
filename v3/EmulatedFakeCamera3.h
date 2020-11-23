@@ -256,7 +256,6 @@ private:
     sp<JpegCompressor> mJpegCompressor;
     friend class       JpegCompressor;
     unsigned int mSupportCap;
-    unsigned int mSupportRotate;
     camera_status_t   mCameraStatus;
     bool mFlushTag;
     /** Processing thread for sending out results */

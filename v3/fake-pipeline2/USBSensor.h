@@ -28,14 +28,12 @@ namespace android {
             status_t streamOff(void) override;
             status_t startUp(int idx) override;
             status_t shutDown(void) override;
-            void captureRGB(uint8_t *img, uint32_t gain, uint32_t stride) override;
             void captureNV21(StreamBuffer b, uint32_t gain) override;
             void captureYV12(StreamBuffer b, uint32_t gain) override;
             void captureYUYV(uint8_t *img, uint32_t gain, uint32_t stride) override;
             status_t getOutputFormat(void) override;
             status_t setOutputFormat(int width, int height, int pixelformat, bool isjpeg) override;
             int halFormatToSensorFormat(uint32_t pixelfmt) override;
-            status_t IoctlStateProbe(void) override;
             status_t streamOn() override;
             bool isStreaming() override;
             bool isNeedRestart(uint32_t width, uint32_t height, uint32_t pixelformat) override;
@@ -45,7 +43,6 @@ namespace android {
             int getPictureSizes(int32_t picSizes[], int size, bool preview) override;
             status_t force_reset_sensor() override;
             int captureNewImage() override;
-			int doRotationAndMirror() override;
             //-------dummy function-------
             int getZoom(int *zoomMin, int *zoomMax, int *zoomStep) override;
             int setZoom(int zoomValue) override;
@@ -85,7 +82,6 @@ namespace android {
             uint8_t* mImage_buffer;
             uint8_t* mDecodedBuffer;
             bool mIsRequestFinished;
-            int mTempFD;
 #ifdef GE2D_ENABLE
             IONInterface* mION;
 #endif
@@ -100,6 +96,8 @@ namespace android {
             int camera_open(int idx);
             void camera_close(void);
             const char* getformt(int id);
+            void setIOBufferNum();
+            void takePicture(StreamBuffer b, uint32_t stride);
     };
 }
 #endif
