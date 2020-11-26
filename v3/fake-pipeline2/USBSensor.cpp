@@ -518,15 +518,25 @@ void USBSensor::takePicture(StreamBuffer b, uint32_t stride) {
                     mVinfo->putback_picture_frame();
                     usleep(5000);
                 }
+#ifdef GE2D_ENABLE			
+                ge2dDevice::doRotationAndMirror(b);
+#endif
             } else if (mVinfo->picture.format.fmt.pix.pixelformat == V4L2_PIX_FMT_RGB24) {
                 if (mVinfo->picture.buf.length == width * height * 3) {
                     memcpy(b.img, src, mVinfo->picture.buf.length);
                 } else {
                     mCameraUtil->rgb24_memcpy(b.img, src, width, height);
                 }
+#ifdef GE2D_ENABLE
+                ALOGD("%s:do rotation and mirror",__FUNCTION__);
+                ge2dDevice::doRotationAndMirror(b);
+#endif
                 break;
             } else if (mVinfo->picture.format.fmt.pix.pixelformat == V4L2_PIX_FMT_NV21) {
                 memcpy(b.img, src, mVinfo->picture.buf.length);
+#ifdef GE2D_ENABLE				
+                ge2dDevice::doRotationAndMirror(b);
+#endif
                 break;
             }
         }
