@@ -26,7 +26,6 @@
 #define ATRACE_TAG (ATRACE_TAG_CAMERA | ATRACE_TAG_HAL | ATRACE_TAG_ALWAYS)
 #include <android/log.h>
 #include <cutils/properties.h>
-#include "EmulatedQemuCamera.h"
 #include "EmulatedFakeCamera.h"
 #include "EmulatedFakeCamera2.h"
 #include "EmulatedFakeCamera3.h"
@@ -60,7 +59,6 @@ namespace android {
 
 EmulatedCameraFactory::EmulatedCameraFactory()
         : mCameraVirtualDevice(NULL),
-          mQemuClient(),
           mEmulatedCameraNum(0),
           mConstructedOK(false),
           mCallbacks(NULL)

@@ -19,7 +19,6 @@
 
 #include <utils/RefBase.h>
 #include "EmulatedBaseCamera.h"
-#include "QemuClient.h"
 
 #include <hardware/hardware.h>
 #include <hardware/camera_common.h>
@@ -180,7 +179,6 @@ private:
 private:
 	CameraVirtualDevice* mCameraVirtualDevice;
     /* Connection to the camera service in the emulator. */
-    FactoryQemuClient   mQemuClient;
 
     /* Array of cameras available for the emulation. */
     EmulatedBaseCamera*     mEmulatedCameras[MAX_CAMERA_NUM];

@@ -145,14 +145,11 @@ LOCAL_SRC_FILES := \
     EmulatedBaseCamera.cpp \
     EmulatedCamera.cpp \
     EmulatedCameraDevice.cpp \
-    EmulatedQemuCamera.cpp \
-    EmulatedQemuCameraDevice.cpp \
     EmulatedFakeCamera.cpp \
     EmulatedFakeCameraDevice.cpp \
     Converters.cpp \
     PreviewWindow.cpp \
     CallbackNotifier.cpp \
-    QemuClient.cpp \
     JpegCompressor.cpp \
     fake-pipeline2/Scene.cpp \
     fake-pipeline2/Sensor.cpp \

@@ -198,7 +198,8 @@ bool EmulatedCameraHotplugThread::threadLoop() {
             CAMHAL_LOGDA("invalid message");
             break;
         }
-        buf[len] = '\0';
+        if (len < 4096)
+            buf[len] = '\0';
 
         CAMHAL_LOGDB("buf=%s\n", buf);
         video4linux_string = strstr(buf, "video4linux");
