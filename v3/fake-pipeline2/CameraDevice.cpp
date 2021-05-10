@@ -37,26 +37,8 @@ struct VirtualDevice CameraVirtualDevice::videoDevices[] = {
         {"/dev/video51",3,{FREED_VIDEO_DEVICE,FREED_META_DEVICE,FREED_VIDEO_DEVICE},{-1,-1,-1},{-1,-1,-1}}
 };
 
-static int get_sysfs_int(const char *path)
-{
-     int val = -1;
-     int fd = open(path, O_RDONLY);
-     if (fd >= 0) {
-        char value[16];
-        read(fd, value, sizeof (value));
-        val = strtol(value, NULL, 10);
-        close(fd);
-     } else {
-        ALOGD("unable to open file %s\n", path);
-        return -1;
-     }
-     return val;
-}
-
-
 struct VirtualDevice* CameraVirtualDevice::findVideoDevice(int id) {
     int video_device_count = 0;
-	int state = get_sysfs_int(MIPI_CAMERA_STATE);
     /*scan the device name*/
     for (size_t i = 0; i < ARRAY_SIZE(videoDevices); i++) {
         struct VirtualDevice* pDev = &videoDevices[i];
@@ -69,21 +51,6 @@ struct VirtualDevice* CameraVirtualDevice::findVideoDevice(int id) {
             switch (pDev->status[stream_idx])
             {
                 case FREED_VIDEO_DEVICE:
-
-                  if (state == 1) {
-                      if (video_device_count == id) {
-                          video_device_count++;
-                          ALOGD("%s: device number is %d ",__FUNCTION__,video_device_count);
-						  continue;
-                      }
-                  } else {
-                      if (video_device_count != id) {
-                          video_device_count++;
-                          ALOGD("%s: device number is %d ",__FUNCTION__,video_device_count);
-						  continue;
-                      }
-                  }
-					break;
                 case USED_VIDEO_DEVICE:
                     if (video_device_count != id)
                         video_device_count++;
