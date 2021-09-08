@@ -26,34 +26,45 @@
 
 CameraVirtualDevice* CameraVirtualDevice::mInstance = nullptr;
 
-#if (BUILD_KERNEL_5_4 == false)
 struct VirtualDevice CameraVirtualDevice::videoDevices[] = {
-        {"/dev/video0",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1}},
-        {"/dev/video1",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1}},
-        {"/dev/video2",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1}},
-        {"/dev/video3",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1}},
-        {"/dev/video4",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1}},
-        {"/dev/video5",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1}},
-        {"/dev/video50",3,{FREED_VIDEO_DEVICE,FREED_META_DEVICE,FREED_VIDEO_DEVICE},{-1,-1,-1},{-1,-1,-1}},
-        {"/dev/video51",3,{FREED_VIDEO_DEVICE,FREED_META_DEVICE,FREED_VIDEO_DEVICE},{-1,-1,-1},{-1,-1,-1}}
+        {"/dev/video0",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1},0},
+        {"/dev/video1",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1},1},
+        {"/dev/video2",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1},2},
+        {"/dev/video3",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1},3},
+        {"/dev/video4",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1},4},
+        {"/dev/video5",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1},5},
+        {"/dev/video50",3,{FREED_VIDEO_DEVICE,FREED_META_DEVICE,FREED_VIDEO_DEVICE},{-1,-1,-1},{-1,-1,-1},50},
+        {"/dev/video51",3,{FREED_VIDEO_DEVICE,FREED_META_DEVICE,FREED_VIDEO_DEVICE},{-1,-1,-1},{-1,-1,-1},51}
 };
-#else
-struct VirtualDevice CameraVirtualDevice::videoDevices[] = {
-        {"/dev/video0",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1}},
-        {"/dev/video2",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1}},
-        {"/dev/video4",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1}},
-        {"/dev/video6",1,{FREED_VIDEO_DEVICE,NONE_DEVICE,NONE_DEVICE},{-1,-1,-1},{-1,-1,-1}},
-        {"/dev/video50",3,{FREED_VIDEO_DEVICE,FREED_META_DEVICE,FREED_VIDEO_DEVICE},{-1,-1,-1},{-1,-1,-1}},
-        {"/dev/video51",3,{FREED_VIDEO_DEVICE,FREED_META_DEVICE,FREED_VIDEO_DEVICE},{-1,-1,-1},{-1,-1,-1}}
-};
-#endif
+
+CameraVirtualDevice::CameraVirtualDevice() {
+
+    char prop[PROPERTY_VALUE_MAX];
+    int i = 0;
+
+    for (int k = 0; k < DEVICE_NUM; k++) {
+        mCameraSet[k] = -1;
+    }
+    if (property_get("camera.usb.device.id", prop, "0,2,50") > 0) {
+       //ALOGD("%s:prop:%s",__FUNCTION__,prop);
+       char* temp = strtok(prop,",");
+       while (temp)
+       {
+           mCameraSet[i++] = atoi(temp);
+           temp = strtok(NULL,",");
+       }
+    } else {
+        ALOGD("%s:======can not getprop",__FUNCTION__);
+    }
+}
 
 struct VirtualDevice* CameraVirtualDevice::findVideoDevice(int id) {
     int video_device_count = 0;
     /*scan the device name*/
     for (size_t i = 0; i < ARRAY_SIZE(videoDevices); i++) {
         struct VirtualDevice* pDev = &videoDevices[i];
-        if (0 != access(pDev->name, F_OK | R_OK | W_OK)) {
+        if (!findCameraID(pDev->deviceID)
+            || 0 != access(pDev->name, F_OK | R_OK | W_OK)) {
             ALOGD("%s: device %s is invaild", __FUNCTION__,pDev->name);
             continue;
         }
@@ -211,7 +222,8 @@ int CameraVirtualDevice::getCameraNum() {
     ATRACE_CALL();
     for (int i = 0; i < (int)ARRAY_SIZE(videoDevices); i++ ) {
         struct VirtualDevice* pDev = &videoDevices[i];
-        if (0 == access(pDev->name, F_OK | R_OK | W_OK)) {
+        if (findCameraID(pDev->deviceID)
+            && 0 == access(pDev->name, F_OK | R_OK | W_OK)) {
             ALOGD("access %s success\n", pDev->name);
             for (int stream_idx = 0; stream_idx < pDev->streamNum; stream_idx++)
                 if (pDev->status[stream_idx] == FREED_VIDEO_DEVICE) {
@@ -221,4 +233,16 @@ int CameraVirtualDevice::getCameraNum() {
         }
     }
     return iCamerasNum;
+}
+
+int CameraVirtualDevice::findCameraID(int id) {
+    bool flag = false;
+    ALOGD("%s:id=%d",__FUNCTION__,id);
+    for (int i = 0; i < DEVICE_NUM; i++) {
+        if (id == mCameraSet[i]) {
+            flag = true;
+            break;
+        }
+    }
+    return flag;
 }

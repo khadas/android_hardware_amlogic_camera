@@ -70,9 +70,7 @@ USBSensor::USBSensor(int type)
     mION = IONInterface::get_instance();
 #endif
     mDecoder = NULL;
-    mHalMediaCodec = NULL;
     mIsDecoderInit = false;
-    mInitMediaCodec = false;
     mUSBDevicefd = -1;
     mCameraVirtualDevice = nullptr;
     mVinfo = NULL;
@@ -106,13 +104,11 @@ int USBSensor::camera_open(int idx)
     char property[PROPERTY_VALUE_MAX];
     ALOGV("%s: E", __FUNCTION__);
 
-    //sprintf(dev_name, "%s%d", "/dev/video", idx);
-    //mUSBDevicefd = open(dev_name, O_RDWR | O_NONBLOCK);
+
     if (mCameraVirtualDevice == nullptr)
         mCameraVirtualDevice = CameraVirtualDevice::getInstance();
 
     mUSBDevicefd = mCameraVirtualDevice->openVirtualDevice(idx);
-
     if (mUSBDevicefd < 0) {
         DBG_LOGB("open %s failed, errno=%d\n", dev_name, errno);
         ret = -ENOTTY;
@@ -120,11 +116,6 @@ int USBSensor::camera_open(int idx)
     property_get("ro.vendor.platform.omx", property, "false");
     if (strstr(property, "true"))
         mDecodeMethod = DECODE_OMX;
-    property_get("ro.vendor.platform.mediacodec", property, "false");
-    if (strstr(property, "true")) {
-        mDecodeMethod = DECODE_MEDIACODEC;
-        ALOGV("%s: use mediacodec", __FUNCTION__);
-    }
     return ret;
 }
 
@@ -183,10 +174,6 @@ status_t USBSensor::startUp(int idx) {
         case DECODE_OMX:
             if (!mDecoder)
                 mDecoder = new OMXDecoder(true, true);
-            break;
-        case DECODE_MEDIACODEC:
-            if (!mHalMediaCodec)
-                mHalMediaCodec = new HalMediaCodec();
             break;
         default:
             break;
@@ -282,39 +269,18 @@ bool USBSensor::isNeedRestart(uint32_t width, uint32_t height, uint32_t pixelfor
 
 void USBSensor::initDecoder(int width, int height, int bufferCount) {
     ALOGV("%s: width=%d, height=%d",__FUNCTION__,width,height);
-    switch (mUseHwType) {
-        case HW_H264:
-             if (mDecoder != NULL && mIsDecoderInit == false) {
-                mDecoder->setParameters(width,height, bufferCount + 2);
-                mDecoder->initialize("h264");
-                mDecoder->prepareBuffers();
-                mDecoder->start();
-                mIsDecoderInit=true;
-            }
-            if (mHalMediaCodec != NULL && mInitMediaCodec == false) {
-                mHalMediaCodec->init(width,height,"h264");
-                mInitMediaCodec=true;
-            }
-            break;
-        case HW_MJPEG:
-            if (mDecoder != NULL && mIsDecoderInit == false) {
-                mDecoder->setParameters(width,height, bufferCount + 2);
-                mDecoder->initialize("mjpeg");
-                mDecoder->prepareBuffers();
-                mDecoder->start();
-                mIsDecoderInit=true;
-            }
-            if (mHalMediaCodec != NULL && mInitMediaCodec == false) {
-                mHalMediaCodec->init(width,height,"mjpeg");
-                mInitMediaCodec=true;
-            }
-            break;
-        case HW_NONE:
-            break;
-        default:
-            break;
+    if (mDecoder != NULL && mIsDecoderInit == false) {
+        mDecoder->setParameters(width,height, bufferCount + 2);
+        if (mUseHwType == HW_MJPEG)
+            mDecoder->initialize("mjpeg");
+        else if (mUseHwType == HW_H264)
+            mDecoder->initialize("h264");
+        else
+            mDecoder->initialize("mjpeg");
+        mDecoder->prepareBuffers();
+        mDecoder->start();
+        mIsDecoderInit=true;
     }
-    return ;
 }
 
 status_t USBSensor::shutDown() {
@@ -325,13 +291,6 @@ status_t USBSensor::shutDown() {
         mDecoder = NULL;
         mIsDecoderInit = false;
     }
-    if (mHalMediaCodec && mInitMediaCodec == true) {
-        mHalMediaCodec->fini();
-        delete mHalMediaCodec;
-        mHalMediaCodec = NULL;
-        mInitMediaCodec = false;
-    }
-
     //return Sensor::shutDown();
     int res;
     mTimeOutCount = 0;
@@ -359,11 +318,6 @@ status_t USBSensor::streamOff(void){
         mDecoder->deinitialize();
         mIsDecoderInit = false;
     }
-    if (mHalMediaCodec && mInitMediaCodec == true) {
-        mHalMediaCodec->fini();
-        mInitMediaCodec = false;
-    }
-
     return mVinfo->releasebuf_and_stop_capturing();
 
 }
@@ -662,17 +616,12 @@ void USBSensor::captureNV21(StreamBuffer b, uint32_t gain) {
                 break;
             case V4L2_PIX_FMT_H264:
                 {
-                   int ret = H264ToNV21(src, b);
-                   if (ret == 1) {
+                    int ret = H264ToNV21(src, b);
+                   if (ret == 1)
                         continue;
-                    }else {
 #ifdef GE2D_ENABLE
                         ge2dDevice::doRotationAndMirror(b);
 #endif
-                        mDecodedBuffer = b.img;
-                        mKernelBuffer = src;
-                        mVinfo->putback_frame();
-                    }
                 }
                 break;
             default:
@@ -729,23 +678,6 @@ int USBSensor::MJPEGToNV21(uint8_t* src, StreamBuffer b) {
 
             }
             break;
-        case DECODE_MEDIACODEC:
-            {
-                int ret = mHalMediaCodec->decode(src,length,b.img);
-                if (!ret) {
-                    ALOGV("mediacodec decoder error \n");
-                    mVinfo->putback_frame();
-                    //continue;
-                    flag = 1;
-                }else {
-                    mDecodedBuffer = b.img;
-                    mTempFD = b.share_fd;
-                    mKernelBuffer = src;
-                    mVinfo->putback_frame();
-                }
-
-            }
-            break;
         case DECODE_OMX:
             {
                 int ret = mDecoder->Decode(src,length,
@@ -782,66 +714,31 @@ int USBSensor::MJPEGToNV21(uint8_t* src, StreamBuffer b) {
 }
 
 int USBSensor::H264ToNV21(uint8_t* src, StreamBuffer b) {
-    ALOGVV("%s: E", __FUNCTION__);
     int flag = 0;
     size_t width = mVinfo->preview.format.fmt.pix.width;
     size_t height = mVinfo->preview.format.fmt.pix.height;
     size_t length = mVinfo->preview.buf.bytesused;
 
-    char property[PROPERTY_VALUE_MAX];
-    property_get("camera.debug.dump.device", property, "false");
-    if (strstr(property, "true")) {
-        static int src_index = 0;
-        dump(src_index,src,length,"src.mjpg");
+    int ret = mDecoder->Decode(src,length,
+                                b.share_fd,b.img,
+                                width,height);
+    if (!ret) {
+        mVinfo->putback_frame();
+        //continue;
+        flag = 1;
+        if (mDecoder->mTimeOut && mIsDecoderInit == true) {
+            mDecoder->deinitialize();
+            mIsDecoderInit = false;
+            initDecoder(width,height,4);
+        }
+    } else {
+        mDecodedBuffer = b.img;
+        mKernelBuffer = src;
+        mTempFD = b.share_fd;
+        mVinfo->putback_frame();
     }
-    switch (mDecodeMethod) {
-        case DECODE_MEDIACODEC:
-            {
-                int ret = mHalMediaCodec->decode(src,length,b.img);
-                if (!ret) {
-                    ALOGV("mediacodec decoder error \n");
-                    mVinfo->putback_frame();
-                    //continue;
-                    flag = 1;
-                }else {
-                    mDecodedBuffer = b.img;
-                    mTempFD = b.share_fd;
-                    mKernelBuffer = src;
-                    mVinfo->putback_frame();
-                }
-
-            }
-            break;
-        case DECODE_OMX:
-            {
-                int ret = mDecoder->Decode(src,length,
-                                            b.share_fd,b.img,
-                                            width,height);
-                if (!ret) {
-                    mVinfo->putback_frame();
-                    //continue;
-                    flag = 1;
-                } else {
-                    mDecodedBuffer = b.img;
-                    mKernelBuffer = src;
-                    mTempFD = b.share_fd;
-                    mVinfo->putback_frame();
-                }
-            }
-            break;
-        default:
-            ALOGD("not support this decode method");
-            break;
-    }
-    property_get("camera.debug.dump.decoder", property, "false");
-    if (strstr(property, "true")) {
-        static int dst_index = 0;
-        size_t size = b.width*b.height*3/2;
-        dump(dst_index,b.img, size ,"dst.yuv");
-    }
-    return flag;
+   return flag;
 }
-
 
 void USBSensor::captureYV12(StreamBuffer b, uint32_t gain){
     uint8_t *src;

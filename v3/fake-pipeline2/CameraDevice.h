@@ -17,7 +17,10 @@ struct VirtualDevice {
     deviceStatus_t status[3];
     int cameraId[3];
     int fileDesc[3];
+    int deviceID;
 };
+
+#define DEVICE_NUM (10)
 class CameraVirtualDevice {
     public:
         int openVirtualDevice(int id);
@@ -25,15 +28,16 @@ class CameraVirtualDevice {
         static CameraVirtualDevice* getInstance();
         int getCameraNum();
     private:
-        CameraVirtualDevice(){};
+        CameraVirtualDevice();
         struct VirtualDevice* findVideoDevice(int id);
         int checkDeviceStatus(struct VirtualDevice* pDev);
         int OpenVideoDevice(struct VirtualDevice* pDev);
         int CloseVideoDevice(struct VirtualDevice* pDev);
+        int findCameraID(int id);
     private:
         static struct VirtualDevice videoDevices[8];
         static CameraVirtualDevice* mInstance;
+        int mCameraSet[DEVICE_NUM];
 };
-
 
 #endif

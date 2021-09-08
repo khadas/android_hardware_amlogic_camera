@@ -64,19 +64,17 @@ namespace android {
             enum Decode_Method{
                 DECODE_SOFTWARE,
                 DECODE_OMX,
-                DECODE_MEDIACODEC,
+                DECODE_MAX,
             };
             int mUseHwType;
             enum Decode_Method mDecodeMethod;
             OMXDecoder* mDecoder;
-            HalMediaCodec* mHalMediaCodec;
             CameraUtil* mCameraUtil;
             FILE* fp;
             Vector<uint32_t> mSupportFormat;
             Vector<uint32_t> mTryPixelFormat;
             uint32_t mCurrentFormat;
             bool mIsDecoderInit;
-            bool mInitMediaCodec;
             //store the v4l2 info
             CVideoInfo *mVinfo;
             uint8_t* mImage_buffer;

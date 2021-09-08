@@ -64,13 +64,17 @@ bool OMXDecoder::initialize(const char* name) {
     OMX_ERRORTYPE eRet = OMX_ErrorNone;
     mDequeueFailNum = 0;
     mTimeOut = false;
-    for (int i = 0; i < TempBufferNum; i++)
+    /*for (int i = 0; i < TempBufferNum; i++)
         mTempFrame[i] = (uint8_t*)malloc(mWidth*mHeight*3/2);
-
-    if (0 == strcmp(name,"mjpeg"))
+    */
+    if (0 == strcmp(name,"mjpeg")) {
         mDecoderComponentName = (char *)"OMX.amlogic.mjpeg.decoder.awesome";
-    if (0 == strcmp(name,"h264"))
+    } else if (0 == strcmp(name,"h264")) {
         mDecoderComponentName = (char *)"OMX.amlogic.avc.decoder.awesome";
+    } else {
+        ALOGE("cannot support this format");
+    }
+
     mLibHandle = dlopen("libOmxCore.so", RTLD_NOW);
     if (mLibHandle != NULL) {
         mInit         =     (InitFunc) dlsym(mLibHandle, "OMX_Init");
@@ -81,6 +85,7 @@ bool OMXDecoder::initialize(const char* name) {
         ALOGE("cannot open libOmxCore.so\n");
         return false;
     }
+
 
     if (OMX_ErrorNone != (*mInit)()) {
         ALOGE("OMX_Init fail!\n");
@@ -143,7 +148,7 @@ bool OMXDecoder::initialize(const char* name) {
     mVideoInputPortParam.format.video.nFrameHeight = mHeight;
     if (strcmp(name,"mjpeg") == 0)
         mVideoInputPortParam.format.video.eCompressionFormat = OMX_VIDEO_CodingMJPEG;
-    if (strcmp(name,"h264") == 0)
+    else if (strcmp(name,"h264") == 0)
         mVideoInputPortParam.format.video.eCompressionFormat = OMX_VIDEO_CodingAVC;
     mVideoInputPortParam.format.video.xFramerate = (15 << 16);
     eRet = OMX_SetParameter(mVDecoderHandle, OMX_IndexParamPortDefinition, &mVideoInputPortParam);
@@ -269,8 +274,9 @@ void OMXDecoder::deinitialize()
     OMX_ERRORTYPE eRet = OMX_ErrorNone;
     OMX_STATETYPE eState1, eState2;
     LOG_LINE();
-    for (int i = 0; i < TempBufferNum; i++)
+/*  for (int i = 0; i < TempBufferNum; i++)
             free(mTempFrame[i]);
+*/
     mNoFreeFlag = 1;
     if (mVDecoderHandle == NULL) {
         ALOGD("mVDecoderHandle is NULL, alread deinitialized or not initialized at all");
@@ -727,6 +733,10 @@ OMX_ERRORTYPE OMXDecoder::fillBufferDone(OMX_IN OMX_BUFFERHEADERTYPE *pBuffer)
 {
     AutoMutex l(mOutputBufferLock);
     mListOfOutputBufferHeader.push_back(pBuffer);
+    //send signal
+    Mutex::Autolock lock(mOMXControlMutex);
+    mOMXVSync.signal();
+    ALOGD("%s: Exit \n",__FUNCTION__);
     return OMX_ErrorNone;
 }
 
@@ -778,13 +788,13 @@ void OMXDecoder::QueueBuffer(uint8_t* src, size_t size) {
 
 int OMXDecoder::DequeueBuffer(int dst_fd ,uint8_t* dst_buf,
                                     size_t dst_w, size_t dst_h) {
-
+        int ret;
         OMX_BUFFERHEADERTYPE *pOutPutBufferHdr = NULL;
          pOutPutBufferHdr = dequeueOutputBuffer();
         if (pOutPutBufferHdr == NULL) {
             //dequeue fail
             //ALOGD("%s:dequeue fail",__FUNCTION__);
-            return 0;
+           ret = 0;
         } else {
             //ALOGD("omx pOutPutBufferHdr = %p\n", pOutPutBufferHdr);
 #ifdef GE2D_ENABLE
@@ -801,24 +811,45 @@ int OMXDecoder::DequeueBuffer(int dst_fd ,uint8_t* dst_buf,
 
 #endif
             releaseOutputBuffer(pOutPutBufferHdr);
-            return 1;
+            ret = 1;
         }
-        return 1;
+        return ret;
+}
+
+bool OMXDecoder::OMXWaitForVSync(nsecs_t reltime) {
+    //ATRACE_CALL();
+    int res;
+    Mutex::Autolock lock(mOMXControlMutex);
+    res = mOMXVSync.waitRelative(mOMXControlMutex, reltime);
+    if (res != OK && res != TIMED_OUT) {
+        ALOGE("%s: Error waiting for VSync signal: %d", __FUNCTION__, res);
+        return false;
+    }
+    return true;
 }
 
 
 int OMXDecoder::Decode(uint8_t*src, size_t src_size,
                           int dst_fd,uint8_t *dst_buf,
                           size_t dst_w, size_t dst_h) {
+        int ret = 0;
         QueueBuffer(src, src_size);
-        int ret = DequeueBuffer(dst_fd,dst_buf,
-                                dst_w,dst_h);
-        if (!ret) {
-            if (mDequeueFailNum ++ > MaxPollingCount)
-                mTimeOut = true;
-            ALOGD("%s:Polling number=%d",__FUNCTION__,mDequeueFailNum);
-        }
 
+        bool state = OMXWaitForVSync(20*1000*1000); //20ms
+
+        if (state) {
+               ret = DequeueBuffer(dst_fd,dst_buf,dst_w,dst_h);
+            if (!ret) {
+                if (mDequeueFailNum ++ > MAX_POLLING_COUNT)
+                    mTimeOut = true;
+
+                ALOGD("%s:Polling number=%d",__FUNCTION__,mDequeueFailNum);
+            }
+        } else {
+            ALOGD("%s: OMX Vsync error",__FUNCTION__);
+            ret = 0;
+        }
+#if 0
         if (ret && mDequeueFailNum >= 1) {
             bool Iscached = false;
             int buffer_index = 0;
@@ -844,5 +875,6 @@ int OMXDecoder::Decode(uint8_t*src, size_t src_size,
                 memcpy(dst_buf,mTempFrame[buffer_index],mWidth*mHeight*3/2);
             }
         }
+#endif
         return ret;
 }
