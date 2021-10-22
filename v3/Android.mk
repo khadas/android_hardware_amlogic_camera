@@ -81,6 +81,13 @@ endif
 LOCAL_CFLAGS += -DGE2D_ENABLE
 endif
 
+ifeq ($(ANDROID_BUILD_TYPE), 64)
+    LOCAL_CFLAGS += -DARM64_BIT
+endif
+
+LOCAL_CFLAGS += -Wno-error=format
+
+NEED_ISP = true
 ifeq ($(NEED_ISP),true)
 LOCAL_SHARED_LIBRARIES += libispaaa
 LOCAL_CFLAGS += -DISP_ENABLE
@@ -205,19 +212,16 @@ include $(BUILD_SHARED_LIBRARY)
 include $(CLEAR_VARS)
 
 LOCAL_MODULE := libispaaa
-ifeq ($(KERNEL_A32_SUPPORT),true)
-LOCAL_SRC_FILES := isplib/lib/libispaaa.so
-else
-LOCAL_SRC_FILES := isplib/lib64/libispaaa.so
-endif
-LOCAL_MODULE_SUFFIX := $(TARGET_SHLIB_SUFFIX)
+
+LOCAL_MULTILIB := both
+LOCAL_MODULE_SUFFIX :=.so
+
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE_CLASS := SHARED_LIBRARIES
-ifneq ($(ANDROID_BUILD_TYPE),64)
-LOCAL_MODULE_PATH := $(TARGET_OUT_VENDOR)/lib/
-else
-LOCAL_MODULE_PATH := $(TARGET_OUT_VENDOR)/lib64/
-endif
+LOCAL_MODULE_PATH_32 := $(TARGET_OUT_VENDOR)/lib/
+LOCAL_MODULE_PATH_64 := $(TARGET_OUT_VENDOR)/lib64/
+LOCAL_SRC_FILES_arm := isplib/lib/libispaaa.so
+LOCAL_SRC_FILES_arm64 := isplib/lib64/libispaaa.so
 
 include $(BUILD_PREBUILT)
 

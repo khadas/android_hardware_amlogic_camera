@@ -505,14 +505,23 @@ bool OMXDecoder::ion_buffer_init() {
         eRet = OMX_UseBuffer(mVDecoderHandle,
                 &bufferHdr,
                 mVideoOutputPortParam.nPortIndex,
+                #ifdef ARM64_BIT
+                (OMX_PTR)(long)shared_fd,
+                #else
                 (OMX_PTR)shared_fd,
+				#endif
                 mVideoOutputPortParam.nBufferSize,
                 (OMX_U8*)cpu_ptr);
         if (OMX_ErrorNone != eRet) {
             ALOGE("OMX_UseBuffer on output port failed! eRet = %#x\n", eRet);
             return false;
         }
+
+		#ifdef ARM64_BIT
+        bufferHdr->pAppPrivate = (OMX_PTR)(long)ion_hnd;
+        #else
         bufferHdr->pAppPrivate = (OMX_PTR)ion_hnd;
+		#endif
         mListOfOutputBufferHeader.push_back(bufferHdr);
     }
     return true;
@@ -575,12 +584,20 @@ void OMXDecoder::free_ion_buffer(void) {
         if (bufferHdr != NULL) {
             if (mUseDMABuffer) {
                 munmap(bufferHdr->pBuffer, mWidth * mHeight * 3 / 2);
-                int ret = close((int)bufferHdr->pPlatformPrivate);
+				#ifdef ARM64_BIT
+                int ret = close((int)(long)bufferHdr->pPlatformPrivate);
+				#else
+				int ret = close((int)bufferHdr->pPlatformPrivate);
+				#endif
                 if (ret != 0) {
                     ALOGD("close ion shared fd failed for reason %s",strerror(errno));
                 }
                 ALOGD("bufferHdr->pAppPrivate: %p", bufferHdr->pAppPrivate);
-                ret = ion_free(mIonFd, (ion_user_handle_t)(bufferHdr->pAppPrivate));
+				#ifdef ARM64_BIT
+                ret = ion_free(mIonFd, (ion_user_handle_t)(long)(bufferHdr->pAppPrivate));
+				#else
+				ret = ion_free(mIonFd, (ion_user_handle_t)(bufferHdr->pAppPrivate));
+				#endif
                 if (ret != 0) {
                     ALOGD("ion_free failed for reason %s",strerror(errno));
                 }
@@ -800,7 +817,12 @@ int OMXDecoder::DequeueBuffer(int dst_fd ,uint8_t* dst_buf,
 #ifdef GE2D_ENABLE
            if (dst_fd != -1) {
                 //copy data using ge2d
-                int omx_share_fd = (int)pOutPutBufferHdr->pPlatformPrivate;
+
+                #ifdef ARM64_BIT
+                int omx_share_fd = (int)(long)pOutPutBufferHdr->pPlatformPrivate;
+		#else
+		int omx_share_fd = (int)pOutPutBufferHdr->pPlatformPrivate;
+		#endif
                 ge2dDevice::ge2d_copy(dst_fd,omx_share_fd,dst_w,dst_h,ge2dDevice::NV12);
             }
             else
