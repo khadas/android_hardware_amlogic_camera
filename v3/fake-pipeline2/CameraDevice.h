@@ -20,13 +20,16 @@ struct VirtualDevice {
     int deviceID;
 };
 
-#define DEVICE_NUM (10)
+#define DEVICE_NUM (6)
+#define ISP_DEVICE (4)
 class CameraVirtualDevice {
     public:
         int openVirtualDevice(int id);
         int releaseVirtualDevice(int id,int fd);
         static CameraVirtualDevice* getInstance();
         int getCameraNum();
+        int checkDeviceExist(char* name);
+        int returnDeviceId(char* name);
     private:
         CameraVirtualDevice();
         struct VirtualDevice* findVideoDevice(int id);
@@ -37,7 +40,6 @@ class CameraVirtualDevice {
     private:
         static struct VirtualDevice videoDevices[8];
         static CameraVirtualDevice* mInstance;
-        int mCameraSet[DEVICE_NUM];
 };
 
 #endif
