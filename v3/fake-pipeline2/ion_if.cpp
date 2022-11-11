@@ -78,7 +78,7 @@ uint8_t* IONInterface::alloc_buffer(size_t size,int* share_fd) {
             if (mPicBuffers[i].IsUsed == false) {
                 mPicBuffers[i].IsUsed = true;
                 pBuffer = &mPicBuffers[i];
-                ALOGD("---------------%s:size= %d,buffer idx = %d\n", __FUNCTION__,size,i);
+                ALOGD("---------------%s:size= %zu,buffer idx = %d\n", __FUNCTION__,size,i);
                 break;
             }
         }

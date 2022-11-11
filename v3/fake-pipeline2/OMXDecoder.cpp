@@ -135,7 +135,7 @@ bool OMXDecoder::initialize(const char* name) {
         return false;
     }
 
-    ALOGD("[%s:%d]OMX_GetParameter mVideoInputPortParam.nBufferSize = %zu, mVideoInputPortParam.format.video.eColorFormat =%d\n",
+    ALOGD("[%s:%d]OMX_GetParameter mVideoInputPortParam.nBufferSize = %d, mVideoInputPortParam.format.video.eColorFormat =%d\n",
             __FUNCTION__, __LINE__,
             mVideoInputPortParam.nBufferSize, mVideoInputPortParam.format.video.eColorFormat);
 
@@ -153,7 +153,7 @@ bool OMXDecoder::initialize(const char* name) {
         return false;
     }
 
-    ALOGD("[%s:%d]OMX_SetParameter mVideoInputPortParam.nBufferSize = %zu\n",
+    ALOGD("[%s:%d]OMX_SetParameter mVideoInputPortParam.nBufferSize = %d\n",
             __FUNCTION__, __LINE__,
             mVideoInputPortParam.nBufferSize);
 
@@ -164,7 +164,7 @@ bool OMXDecoder::initialize(const char* name) {
         return false;
     }
 
-    ALOGD("[%s:%d]mVideoInputPortParam.nBufferCountActual = %zu, mVideoInputPortParam.nBufferSize = %zu, mVideoInputPortParam.format.video.eColorFormat =%d\n",
+    ALOGD("[%s:%d]mVideoInputPortParam.nBufferCountActual = %d, mVideoInputPortParam.nBufferSize = %d, mVideoInputPortParam.format.video.eColorFormat =%d\n",
             __FUNCTION__, __LINE__,
             mVideoInputPortParam.nBufferCountActual,
             mVideoInputPortParam.nBufferSize,
@@ -234,7 +234,7 @@ bool OMXDecoder::initialize(const char* name) {
         return false;
     }
 
-    ALOGD("[%s:%d]mVideoOutputPortParam.nBufferCountActual = %zu, mVideoOutputPortParam.nBufferSize = %zu\n",
+    ALOGD("[%s:%d]mVideoOutputPortParam.nBufferCountActual = %d, mVideoOutputPortParam.nBufferSize = %d\n",
             __FUNCTION__, __LINE__, mVideoOutputPortParam.nBufferCountActual, mVideoOutputPortParam.nBufferSize);
 
     OMX_SendCommand(mVDecoderHandle, OMX_CommandStateSet, OMX_StateIdle, NULL);
@@ -290,7 +290,7 @@ void OMXDecoder::deinitialize()
 
     while (mListOfInputBufferHeader.size() != mVideoInputPortParam.nBufferCountActual
             || mListOfOutputBufferHeader.size() != mVideoOutputPortParam.nBufferCountActual) {
-        ALOGD("Input: %u/%u  Output: %u/%u",
+        ALOGD("Input: %zu/%u  Output: %zu/%u",
                 mListOfInputBufferHeader.size(), mVideoInputPortParam.nBufferCountActual,
                 mListOfOutputBufferHeader.size(), mVideoOutputPortParam.nBufferCountActual);
         usleep(5000);
@@ -678,7 +678,7 @@ OMX_ERRORTYPE OMXDecoder::OnEvent(
         OMX_IN OMX_PTR)
 {
     LOG_LINE();
-    ALOGD("data1 = %zu, data2 = %zu, event = %d\n", nData1, nData2, eEvent);
+    ALOGD("data1 = %u, data2 = %u, event = %d\n", nData1, nData2, eEvent);
 
     if (eEvent == OMX_EventBufferFlag)
     {
@@ -702,7 +702,7 @@ OMX_ERRORTYPE OMXDecoder::OnEvent(
             {
                 ALOGD("OMX_GetParameter FAILED");
             }
-            ALOGD("w= %zu, h= %zu\n", mVideoOutputPortParam.format.video.nFrameWidth, mVideoOutputPortParam.format.video.nFrameHeight);
+            ALOGD("w= %u, h= %u\n", mVideoOutputPortParam.format.video.nFrameWidth, mVideoOutputPortParam.format.video.nFrameHeight);
             if (mWidth != mVideoOutputPortParam.format.video.nFrameWidth || mHeight != mVideoOutputPortParam.format.video.nFrameHeight)
             {
                 ALOGD("Dynamic resolution changes triggered");

@@ -1983,10 +1983,10 @@ int USBSensor::captureNewImage() {
     mIsRequestFinished = false;
     size_t buffer_num = mNextCapturedBuffers->size();
     // Might be adding more buffers, so size isn't constant
-    ALOGVV("%s:buffer size=%d\n",__FUNCTION__,buffer_num);
+    ALOGVV("%s:buffer size=%zu\n",__FUNCTION__,buffer_num);
     for (size_t i = 0; i < mNextCapturedBuffers->size(); i++) {
         const StreamBuffer &b = (*mNextCapturedBuffers)[i];
-        ALOGVV("Sensor capturing buffer %d: stream %d,"
+        ALOGVV("Sensor capturing buffer %zu: stream %d,"
                 " %d x %d, format %x, stride %d, buf %p, img %p",
                 i, b.streamId, b.width, b.height, b.format, b.stride,
                 b.buffer, b.img);
